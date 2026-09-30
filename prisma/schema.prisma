@@ -1,0 +1,1104 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum HealthVerdict {
+  HEALTHY
+  MODERATE
+  UNHEALTHY
+}
+
+enum NotificationType {
+  MEAL_REMINDER
+  MOTIVATIONAL
+  PROGRESS
+  WARNING
+  ACHIEVEMENT
+}
+
+model User {
+  id            String    @id @default(cuid())
+  clerkId       String    @unique
+  email         String    @unique
+  name          String
+  role          UserRole  @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  profile       Profile?
+  meals         Meal[]
+  notifications Notification[]
+  settings      UserSettings?
+  subscriptions PushSubscription[]
+  auditLogs     AuditLog[]
+}
+
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  birthDate       DateTime?
+  gender          String?
+  heightCm        Float?
+  weightKg        Float?
+  targetWeightKg  Float?
+  activityLevel   String?
+  goal            String?
+  bmi             Float?
+  bmr             Float?
+  tdee            Float?
+  targetCalories  Int?
+  targetProtein   Int?
+  targetCarbs     Int?
+  targetFat       Int?
+  faceVerified    Boolean  @default(false)
+  faceEmbedding   Bytes?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Meal {
+  id              String       @id @default(cuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            MealType
+  scheduledAt     DateTime
+  eatenAt         DateTime?
+  photoUrl        String?
+  photoThumbUrl   String?
+  recognizedFoods Json?
+  healthVerdict   HealthVerdict?
+  healthAnalysis  String?
+  calories        Int?
+  proteinG        Float?
+  carbsG          Float?
+  fatG            Float?
+  fiberG          Float?
+  sugarG          Float?
+  sodiumMg        Float?
+  isManualEntry   Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([userId, eatenAt])
+  @@index([userId, type, eatenAt])
+}
+
+model Food {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  name_es     String?
+  category    String
+  calories_100g Int
+  protein_100g Float
+  carbs_100g  Float
+  fat_100g    Float
+  fiber_100g  Float?
+  sugar_100g  Float?
+  sodium_100g Float?
+  health_score Int
+  tags        String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+model MealPlan {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  goal          String
+  caloriesTarget  Int
+  proteinTarget   Int
+  carbsTarget     Int
+  fatTarget       Int
+  mealsPerDay     Int      @default(4)
+  preferences     Json     @default("{}")
+  restrictions    String[]
+  aiGenerated     Boolean  @default(false)
+  trainerApproved Boolean  @default(false)
+  approvedAt      DateTime?
+  version         Int      @default(1)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  meals           PlanMeal[]
+  @@index([userId, isActive])
+}
+
+model PlanMeal {
+  id            String   @id @default(cuid())
+  planId        String
+  plan          MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayOfWeek     Int
+  mealOrder     Int
+  name          String
+  foods         Json
+  totalCalories Int
+  totalProtein  Float
+  totalCarbs    Float
+  totalFat      Float
+  instructions  String?
+  prepTimeMinutes Int?
+  @@unique([planId, dayOfWeek, mealOrder])
+}
+
+model Notification {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, sentAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String
+  p256dh    String
+  auth      String
+  deviceType String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model UserSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  motivationalAudioEnabled Boolean @default(true)
+  pushEnabled           Boolean  @default(true)
+  breakfastTime         String   @default("08:00")
+  lunchTime             String   @default("13:00")
+  dinnerTime            String   @default("20:00")
+  snackTimes            String[] @default([])
+  language              String   @default("es")
+  timezone              String   @default("America/Mexico_City")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+}
+
+model MotivationalContent {
+  id          String   @id @default(cuid())
+  category    String
+  trigger     String?
+  text        String
+  audioUrl    String?
+  backgroundMusicUrl String?
+  language    String   @default("es")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Trainer {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio             String
+  specialties     String[]
+  certifications  Json
+  languages       String[] @default(["es"])
+  hourlyRateCents Int?
+  currency        String   @default("USD")
+  rating          Float    @default(0)
+  reviewCount     Int      @default(0)
+  isVerified      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  availability    Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  services        Service[]
+  clients         TrainerClient[]
+  sessions        Session[]
+  reviews         Review[]
+  earnings        TrainerEarning[]
+}
+
+model TrainerClient {
+  id          String   @id @default(cuid())
+  trainerId   String
+  trainer     Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      String   @default("ACTIVE")
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  notes       String?
+  @@unique([trainerId, userId])
+}
+
+model Service {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trainerId       String?
+  trainer         Trainer?      @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  name            String
+  description     String
+  type            String
+  category        String
+  format          String
+  priceCents      Int
+  currency        String        @default("USD")
+  durationMinutes Int
+  maxParticipants Int           @default(1)
+  sessionsIncluded Int?
+  validityDays    Int?
+  isActive        Boolean       @default(true)
+  isPublic        Boolean       @default(true)
+  requirements    String?
+  includes        String[]
+  thumbnailUrl    String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  purchases       Purchase[]
+  sessions        Session[]
+  @@index([tenantId, isActive, isPublic])
+}
+
+model Session {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  serviceId       String
+  service         Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  trainerId       String
+  trainer         Trainer       @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          User          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scheduledAt     DateTime
+  startedAt       DateTime?
+  endedAt         DateTime?
+  durationMinutes Int?
+  status          String        @default("SCHEDULED")
+  meetingUrl      String?
+  recordingUrl    String?
+  notes           String?
+  clientNotes     String?
+  rating          Int?
+  review          String?
+  aiSummary       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([trainerId, scheduledAt])
+  @@index([clientId, scheduledAt])
+  @@index([tenantId, status, scheduledAt])
+}
+
+model Purchase {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceId       String
+  service         Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  trainerId       String?
+  trainer         Trainer?      @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  amountCents     Int
+  currency        String        @default("USD")
+  platformFeeCents Int
+  trainerPayoutCents Int
+  status          String        @default("PENDING")
+  stripePaymentIntentId String? @unique
+  stripeTransferId String?
+  metadata        Json          @default("{}")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([trainerId, createdAt])
+  @@index([tenantId, status])
+}
+
+model TrainerEarning {
+  id            String   @id @default(cuid())
+  trainerId     String
+  trainer       Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  purchaseId    String   @unique
+  purchase      Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  amountCents   Int
+  currency      String   @default("USD")
+  status        String   @default("PENDING")
+  paidAt        DateTime?
+  stripePayoutId String?
+  createdAt     DateTime @default(now())
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  trainerId   String
+  trainer     Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceId   String?
+  service     Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  sessionId   String?
+  session     Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  rating      Int
+  title       String?
+  content     String
+  isPublic    Boolean  @default(true)
+  isVerified  Boolean  @default(false)
+  response    String?
+  respondedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([trainerId, isPublic])
+  @@index([userId])
+}
+
+model Testimonial {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  trainerId     String?
+  trainer       Trainer? @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  type          String
+  title         String
+  story         String
+  beforePhotoUrl String?
+  afterPhotoUrl  String?
+  metrics       Json?
+  videoUrl      String?
+  isApproved    Boolean  @default(false)
+  isFeatured    Boolean  @default(false)
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      String   @default("DIRECT")
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+  @@index([tenantId, updatedAt])
+}
+
+model ConversationParticipant {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String   @default("MEMBER")
+  joinedAt       DateTime @default(now())
+  leftAt         DateTime?
+  lastReadAt     DateTime?
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  type           String       @default("TEXT")
+  content        String
+  metadata       Json         @default("{}")
+  isEdited       Boolean      @default(false)
+  isDeleted      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([conversationId, createdAt])
+}
+
+model Tenant {
+  id              String       @id @default(cuid())
+  name            String
+  slug            String       @unique
+  type            String
+  logoUrl         String?
+  primaryColor    String       @default("#1A1A2E")
+  secondaryColor  String       @default("#FF6B35")
+  domain          String?
+  subdomain       String       @unique
+  isActive        Boolean      @default(true)
+  trialEndsAt     DateTime?
+  plan            String       @default("FREE")
+  stripeAccountId String?
+  settings        Json         @default("{}")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  members         TenantMember[]
+  trainers        Trainer[]
+  services        Service[]
+  subscriptions   TenantSubscription[]
+  kiosks          Kiosk[]
+}
+
+model TenantMember {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("MEMBER")
+  joinedAt  DateTime @default(now())
+  metadata  Json     @default("{}")
+  @@unique([tenantId, userId])
+}
+
+model TenantSubscription {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stripeSubId   String?  @unique
+  status        String
+  plan          String
+  currentPeriodEnd DateTime?
+  cancelAtPeriodEnd Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Kiosk {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  location    String
+  deviceId    String   @unique
+  isActive    Boolean  @default(true)
+  lastPingAt  DateTime?
+  settings    Json     @default("{}")
+  createdAt   DateTime @default(now())
+}
+
+model CheckIn {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kioskId   String?
+  kiosk     Kiosk?   @relation(fields: [kioskId], references: [id], onDelete: SetNull)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  method    String
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model UserStreak {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentStreak Int      @default(0)
+  longestStreak Int      @default(0)
+  lastMealLoggedAt DateTime?
+  lastWorkoutAt DateTime?
+  lastCheckInAt DateTime?
+  freezeCount   Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String
+  iconUrl     String
+  category    String
+  criteria    Json
+  points      Int      @default(10)
+  isActive    Boolean  @default(true)
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  earnedAt      DateTime @default(now())
+  metadata      Json     @default("{}")
+  @@unique([userId, achievementId])
+}
+
+model Content {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  slug        String   @unique
+  excerpt     String
+  body        String
+  coverUrl    String?
+  videoUrl    String?
+  audioUrl    String?
+  tags        String[]
+  isPublished Boolean  @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DailyMetric {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  date          DateTime @db.Date
+  dau           Int      @default(0)
+  mau           Int      @default(0)
+  newSignups    Int      @default(0)
+  sessionsBooked Int     @default(0)
+  sessionsCompleted Int  @default(0)
+  revenueCents  Int      @default(0)
+  churnedUsers  Int      @default(0)
+  avgSessionRating Float?
+  createdAt     DateTime @default(now())
+  @@unique([tenantId, date])
+}
+model MealPlan {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  goal          String
+  caloriesTarget  Int
+  proteinTarget   Int
+  carbsTarget     Int
+  fatTarget       Int
+  mealsPerDay     Int      @default(4)
+  preferences     Json     @default("{}")
+  restrictions    String[]
+  aiGenerated     Boolean  @default(false)
+  trainerApproved Boolean  @default(false)
+  approvedAt      DateTime?
+  version         Int      @default(1)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  meals           PlanMeal[]
+  @@index([userId, isActive])
+}
+
+model PlanMeal {
+  id            String   @id @default(cuid())
+  planId        String
+  plan          MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayOfWeek     Int
+  mealOrder     Int
+  name          String
+  foods         Json
+  totalCalories Int
+  totalProtein  Float
+  totalCarbs    Float
+  totalFat      Float
+  instructions  String?
+  prepTimeMinutes Int?
+  @@unique([planId, dayOfWeek, mealOrder])
+}
+
+model Notification {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, sentAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String
+  p256dh    String
+  auth      String
+  deviceType String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model UserSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  motivationalAudioEnabled Boolean @default(true)
+  pushEnabled           Boolean  @default(true)
+  breakfastTime         String   @default("08:00")
+  lunchTime             String   @default("13:00")
+  dinnerTime            String   @default("20:00")
+  snackTimes            String[] @default([])
+  language              String   @default("es")
+  timezone              String   @default("America/Mexico_City")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+}
+
+model MotivationalContent {
+  id          String   @id @default(cuid())
+  category    String
+  trigger     String?
+  text        String
+  audioUrl    String?
+  backgroundMusicUrl String?
+  language    String   @default("es")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Trainer {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio             String
+  specialties     String[]
+  certifications  Json
+  languages       String[] @default(["es"])
+  hourlyRateCents Int?
+  currency        String   @default("USD")
+  rating          Float    @default(0)
+  reviewCount     Int      @default(0)
+  isVerified      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  availability    Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  services        Service[]
+  clients         TrainerClient[]
+  sessions        Session[]
+  reviews         Review[]
+  earnings        TrainerEarning[]
+}
+
+model TrainerClient {
+  id          String   @id @default(cuid())
+  trainerId   String
+  trainer     Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      String   @default("ACTIVE")
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  notes       String?
+  @@unique([trainerId, userId])
+}
+
+model Service {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trainerId       String?
+  trainer         Trainer?      @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  name            String
+  description     String
+  type            String
+  category        String
+  format          String
+  priceCents      Int
+  currency        String        @default("USD")
+  durationMinutes Int
+  maxParticipants Int           @default(1)
+  sessionsIncluded Int?
+  validityDays    Int?
+  isActive        Boolean       @default(true)
+  isPublic        Boolean       @default(true)
+  requirements    String?
+  includes        String[]
+  thumbnailUrl    String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  purchases       Purchase[]
+  sessions        Session[]
+  @@index([tenantId, isActive, isPublic])
+}
+
+model Session {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  serviceId       String
+  service         Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  trainerId       String
+  trainer         Trainer       @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          User          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scheduledAt     DateTime
+  startedAt       DateTime?
+  endedAt         DateTime?
+  durationMinutes Int?
+  status          String        @default("SCHEDULED")
+  meetingUrl      String?
+  recordingUrl    String?
+  notes           String?
+  clientNotes     String?
+  rating          Int?
+  review          String?
+  aiSummary       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([trainerId, scheduledAt])
+  @@index([clientId, scheduledAt])
+  @@index([tenantId, status, scheduledAt])
+}
+
+model Purchase {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceId       String
+  service         Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  trainerId       String?
+  trainer         Trainer?      @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  amountCents     Int
+  currency        String        @default("USD")
+  platformFeeCents Int
+  trainerPayoutCents Int
+  status          String        @default("PENDING")
+  stripePaymentIntentId String? @unique
+  stripeTransferId String?
+  metadata        Json          @default("{}")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([trainerId, createdAt])
+  @@index([tenantId, status])
+}
+
+model TrainerEarning {
+  id            String   @id @default(cuid())
+  trainerId     String
+  trainer       Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  purchaseId    String   @unique
+  purchase      Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  amountCents   Int
+  currency      String   @default("USD")
+  status        String   @default("PENDING")
+  paidAt        DateTime?
+  stripePayoutId String?
+  createdAt     DateTime @default(now())
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  trainerId   String
+  trainer     Trainer  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceId   String?
+  service     Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  sessionId   String?
+  session     Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  rating      Int
+  title       String?
+  content     String
+  isPublic    Boolean  @default(true)
+  isVerified  Boolean  @default(false)
+  response    String?
+  respondedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([trainerId, isPublic])
+  @@index([userId])
+}
+
+model Testimonial {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  trainerId     String?
+  trainer       Trainer? @relation(fields: [trainerId], references: [id], onDelete: SetNull)
+  type          String
+  title         String
+  story         String
+  beforePhotoUrl String?
+  afterPhotoUrl  String?
+  metrics       Json?
+  videoUrl      String?
+  isApproved    Boolean  @default(false)
+  isFeatured    Boolean  @default(false)
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      String   @default("DIRECT")
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+  @@index([tenantId, updatedAt])
+}
+
+model ConversationParticipant {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String   @default("MEMBER")
+  joinedAt       DateTime @default(now())
+  leftAt         DateTime?
+  lastReadAt     DateTime?
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  type           String       @default("TEXT")
+  content        String
+  metadata       Json         @default("{}")
+  isEdited       Boolean      @default(false)
+  isDeleted      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([conversationId, createdAt])
+}
+
+model Tenant {
+  id              String       @id @default(cuid())
+  name            String
+  slug            String       @unique
+  type            String
+  logoUrl         String?
+  primaryColor    String       @default("#1A1A2E")
+  secondaryColor  String       @default("#FF6B35")
+  domain          String?
+  subdomain       String       @unique
+  isActive        Boolean      @default(true)
+  trialEndsAt     DateTime?
+  plan            String       @default("FREE")
+  stripeAccountId String?
+  settings        Json         @default("{}")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  members         TenantMember[]
+  trainers        Trainer[]
+  services        Service[]
+  subscriptions   TenantSubscription[]
+  kiosks          Kiosk[]
+}
+
+model TenantMember {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("MEMBER")
+  joinedAt  DateTime @default(now())
+  metadata  Json     @default("{}")
+  @@unique([tenantId, userId])
+}
+
+model TenantSubscription {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stripeSubId   String?  @unique
+  status        String
+  plan          String
+  currentPeriodEnd DateTime?
+  cancelAtPeriodEnd Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Kiosk {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  location    String
+  deviceId    String   @unique
+  isActive    Boolean  @default(true)
+  lastPingAt  DateTime?
+  settings    Json     @default("{}")
+  createdAt   DateTime @default(now())
+}
+
+model CheckIn {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kioskId   String?
+  kiosk     Kiosk?   @relation(fields: [kioskId], references: [id], onDelete: SetNull)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  method    String
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model UserStreak {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentStreak Int      @default(0)
+  longestStreak Int      @default(0)
+  lastMealLoggedAt DateTime?
+  lastWorkoutAt DateTime?
+  lastCheckInAt DateTime?
+  freezeCount   Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String
+  iconUrl     String
+  category    String
+  criteria    Json
+  points      Int      @default(10)
+  isActive    Boolean  @default(true)
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  earnedAt      DateTime @default(now())
+  metadata      Json     @default("{}")
+  @@unique([userId, achievementId])
+}
+
+model Content {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  slug        String   @unique
+  excerpt     String
+  body        String
+  coverUrl    String?
+  videoUrl    String?
+  audioUrl    String?
+  tags        String[]
+  isPublished Boolean  @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DailyMetric {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  date          DateTime @db.Date
+  dau           Int      @default(0)
+  mau           Int      @default(0)
+  newSignups    Int      @default(0)
+  sessionsBooked Int     @default(0)
+  sessionsCompleted Int  @default(0)
+  revenueCents  Int      @default(0)
+  churnedUsers  Int      @default(0)
+  avgSessionRating Float?
+  createdAt     DateTime @default(now())
+  @@unique([tenantId, date])
+}
