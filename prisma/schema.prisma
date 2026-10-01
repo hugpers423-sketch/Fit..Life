@@ -1,0 +1,83 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String   @default("USER")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  profile   Profile?
+  meals     Meal[]
+}
+
+model Profile {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  birthDate       DateTime?
+  gender          String?
+  heightCm        Float?
+  weightKg        Float?
+  targetWeightKg  Float?
+  activityLevel   String?
+  goal            String?
+  bmi             Float?
+  bmr             Float?
+  tdee            Float?
+  targetCalories  Int?
+  targetProtein   Int?
+  targetCarbs     Int?
+  targetFat       Int?
+  faceVerified    Boolean @default(false)
+}
+
+model Meal {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            String
+  scheduledAt     DateTime
+  eatenAt         DateTime?
+  photoUrl        String?
+  recognizedFoods Json?
+  healthVerdict   String?
+  healthAnalysis  String?
+  calories        Int?
+  proteinG        Float?
+  carbsG          Float?
+  fatG            Float?
+  fiberG          Float?
+  sugarG          Float?
+  sodiumMg        Float?
+  isManualEntry   Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, eatenAt])
+}
+
+model Food {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  nameEs        String?
+  category      String
+  calories100g  Int
+  protein100g   Float
+  carbs100g     Float
+  fat100g       Float
+  fiber100g     Float?
+  sugar100g     Float?
+  sodium100g    Float?
+  healthScore   Int
+  tags          String[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

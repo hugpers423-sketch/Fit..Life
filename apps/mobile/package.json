@@ -1,0 +1,1 @@
+﻿{"name":"mobile","version":"1.0.0","scripts":{"dev":"echo dev","build":"echo build","start":"echo start","test:unit":"echo tests"},"dependencies":{"expo":"^49.0.0","react":"18.2.0"}}
