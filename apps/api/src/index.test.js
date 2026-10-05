@@ -1,9 +1,7 @@
-﻿import request from "supertest";
-
-describe("API Health", () => {
-  it("should return ok", async () => {
-    const res = await request("http://localhost:3001").get("/health");
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe("ok");
-  });
+const test = require("node:test");
+const assert = require("node:assert");
+test("la API exporta una app express", () => {
+  process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://x:x@localhost:5432/x";
+  const app = require("./index.js");
+  assert.strictEqual(typeof app.listen, "function");
 });

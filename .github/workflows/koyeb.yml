@@ -1,4 +1,4 @@
-﻿name: Deploy to Koyeb
+name: Deploy to Koyeb
 
 on:
   push:
