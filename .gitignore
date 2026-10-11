@@ -1,5 +1,33 @@
+# Dependencias y builds
 node_modules/
 dist/
 build/
-.env
 .next/
+web-build/
+.expo/
+
+# Secretos / configuración local
+.env
+.env*.local
+.env.local
+.env.*.local
+*.keystore
+*.jks
+google-services.json
+AuthSession*.json
+
+# Logs y artefactos de test
+*.log
+test-results/
+playwright-report/
+*.tsbuildinfo
+node_modules/.cache/
+
+# Binarios móviles compilados
+*.apk
+*.aab
+*.ipa
+
+# SO / editor
+.DS_Store
+Thumbs.db

@@ -2,6 +2,40 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 async function main() {
+  // 1. Crear usuarios con todos los roles
+  const roles = ["SUPER_ADMIN", "VENDEDOR", "USUARIO", "ORIENTADOR", "QUIOSK"];
+
+  for (const role of roles) {
+    const email = `${role.toLowerCase()}@nutriflow.com`;
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: { name: `${role} NutriFlow`, role: role, specialty: role === 'ORIENTADOR' ? 'NUTRICIONISTA' : null },
+      create: {
+        email,
+        name: `${role} NutriFlow`,
+        role: role,
+      },
+    });
+    console.log(`✅ Usuario ${role} creado: ${user.email}`);
+
+    // 2. Crear perfil para cada usuario
+    await prisma.profile.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: {
+        userId: user.id,
+        birthDate: new Date("1990-01-15"),
+        gender: role === "SUPER_ADMIN" ? "Masculino" : "Femenino",
+        heightCm: role === "SUPER_ADMIN" ? 180 : (role === "VENDEDOR" ? 175 : 165),
+        weightKg: role === "SUPER_ADMIN" ? 80 : (role === "VENDEDOR" ? 75 : 60),
+        activityLevel: "Moderado",
+        goal: "Mantener peso",
+      },
+    });
+    console.log(`✅ Perfil creado para ${role}`);
+  }
+
+  // 3. Sembrar 15 alimentos básicos
   const foods = [
     { name: "Chicken breast", nameEs: "Pechuga de pollo", category: "PROTEIN", calories100g: 165, protein100g: 31, carbs100g: 0, fat100g: 3.6, healthScore: 92, tags: ["KETO", "HIGH_PROTEIN"] },
     { name: "Salmon", nameEs: "Salmón", category: "PROTEIN", calories100g: 208, protein100g: 25, carbs100g: 0, fat100g: 12, healthScore: 95, tags: ["OMEGA3", "KETO"] },
@@ -27,13 +61,14 @@ async function main() {
       create: food,
     });
   }
+  console.log(`✅ Sembrados ${foods.length} alimentos`);
 
-  console.log(`Seeded ${foods.length} foods`);
+  console.log('\n🌱 Seed completado con todos los roles!');
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error('❌ Error en seed:', e);
     process.exit(1);
   })
   .finally(async () => {

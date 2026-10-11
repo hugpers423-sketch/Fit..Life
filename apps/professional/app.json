@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "NutriFlow Professional",
+    "slug": "nutriflow-professional",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "nutriflow-professional",
+    "android": {
+      "package": "com.nutriflow.professional",
+      "versionCode": 1,
+      "usesCleartextTraffic": true
+    },
+    "extra": {
+      "apiUrl": "http://192.168.18.167:3001",
+      "eas": {
+        "projectId": "1f43c848-8977-4493-88dd-f11640a7b3a3"
+      }
+    },
+    "owner": "vicsoft1223"
+  }
+}

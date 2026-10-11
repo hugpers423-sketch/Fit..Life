@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "NutriFlow Servicio",
+    "slug": "nutriflow-servicio",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "nutriflow-servicio",
+    "android": {
+      "package": "com.nutriflow.servicio",
+      "versionCode": 1,
+      "usesCleartextTraffic": true
+    },
+    "extra": {
+      "apiUrl": "http://192.168.18.167:3001",
+      "eas": {
+        "projectId": "253a7ce6-2e65-4b67-b930-b70d96354244"
+      }
+    },
+    "owner": "vicsoft1223"
+  }
+}

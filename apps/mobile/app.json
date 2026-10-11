@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "NutriFlow Admin",
+    "slug": "nutriflow-admin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "nutriflow-admin",
+    "android": {
+      "package": "com.nutriflow.admin",
+      "versionCode": 1,
+      "usesCleartextTraffic": true
+    },
+    "extra": {
+      "apiUrl": "http://192.168.18.167:3001",
+      "eas": {
+        "projectId": "dd5a3816-9b57-4e22-8510-cdeb2bfb3d74"
+      }
+    },
+    "owner": "vicsoft1223"
+  }
+}

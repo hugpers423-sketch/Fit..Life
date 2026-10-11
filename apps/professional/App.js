@@ -1,0 +1,524 @@
+// App Profesional (Orientador) — NutriFlow. Atiende clientes con servicio especializado.
+// Reels/tips por especialidad, videollamadas y lives (Jitsi), progreso semanal,
+// ingresos mensuales y detalle total de cada cliente. Todo sincronizado con el Admin.
+import { StatusBar } from "expo-status-bar";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+
+// URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
+let API_URL = "http://192.168.18.167:3001";
+try {
+  const Constants = require("expo-constants").default;
+  const cfg = (Constants && Constants.expoConfig && Constants.expoConfig.extra && Constants.expoConfig.extra.apiUrl)
+    || (Constants && Constants.manifest && Constants.manifest.extra && Constants.manifest.extra.apiUrl);
+  if (cfg) API_URL = cfg;
+} catch (e) {}
+let API_TOKEN = "";
+let API_ROLE = "";
+const GREEN = "#22c55e";
+const TEAL = "#14b8a6";
+const ORANGE = "#f97316";
+
+async function api(path, init) {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+      ...(API_ROLE ? { "x-role": API_ROLE } : {}),
+      ...((init && init.headers) || {}),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `API ${res.status}`);
+  }
+  return res.json();
+}
+
+function Field({ label, ...props }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput style={styles.input} placeholderTextColor="#8A968F" {...props} />
+    </View>
+  );
+}
+
+function weekKey(iso) {
+  const d = new Date(iso);
+  const onejan = new Date(d.getFullYear(), 0, 1);
+  const week = Math.ceil(((d - onejan) / 864e5 + onejan.getDay() + 1) / 7);
+  return `${d.getFullYear()}-S${week}`;
+}
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState("orientador@nutriflow.com");
+  const [pass, setPass] = useState("orientador1");
+  const [tab, setTab] = useState("clientes");
+  const [clients, setClients] = useState([]);
+  const [meals, setMeals] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [payments, setPayments] = useState({ total: 0, count: 0, payments: [] });
+  const [selClient, setSelClient] = useState(null);
+  const [pending, setPending] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [ok, setOk] = useState("");
+  const [pTitle, setPTitle] = useState("");
+  const [pKind, setPKind] = useState("REEL");
+  const [pMedia, setPMedia] = useState("");
+  const [pDesc, setPDesc] = useState("");
+  const [sTopic, setSTopic] = useState("");
+  const [sClient, setSClient] = useState("");
+  const [sType, setSType] = useState("VIDEOCALL");
+
+  async function login() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim(), password: pass }),
+      });
+      setUser(data.user);
+      API_TOKEN = data.token || "";
+      API_ROLE = (data.user && data.user.role) || "";
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function load(uid) {
+    const id = uid || (user && user.id);
+    if (!id) return;
+    setRefreshing(true);
+    try {
+      const [u, m, p, s, pay, pend] = await Promise.all([
+        api(`/api/admin/users?role=SUPER_ADMIN`),
+        api(`/api/meals?role=SUPER_ADMIN`),
+        api(`/api/posts?authorId=${id}`),
+        api(`/api/sessions?professionalId=${id}`),
+        api(`/api/payments?professionalId=${id}`),
+        api(`/api/products?approved=false`),
+      ]);
+      setClients(u.filter((x) => x.role === "USUARIO"));
+      setMeals(m);
+      setPosts(p);
+      setSessions(s);
+      setPayments(pay);
+      setPending(pend);
+      setError("");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (user) load(user.id);
+  }, [user]);
+
+  // SINCRONIZACIÓN EN TIEMPO REAL (silenciosa)
+  useEffect(() => {
+    if (!user) return;
+    let ultimaV = null;
+    let vivo = true;
+    const id = setInterval(async () => {
+      if (!vivo) return;
+      try {
+        const res = await fetch(`${API_URL}/api/version`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (ultimaV === null) { ultimaV = data.v; return; }
+        if (data.v !== ultimaV) {
+          ultimaV = data.v;
+          if (vivo) load(user.id);
+        }
+      } catch { /* sin conexión */ }
+    }, 3000);
+    return () => { vivo = false; clearInterval(id); };
+  }, [user]);
+
+  const spec = user?.specialty === "ENTRENADOR" ? "ENTRENADOR" : "NUTRICIONISTA";
+
+  async function publish() {
+    if (!pTitle.trim()) {
+      setError("El título es obligatorio.");
+      return;
+    }
+    try {
+      await api("/api/posts", {
+        method: "POST",
+        body: JSON.stringify({ authorId: user.id, kind: pKind, title: pTitle.trim(), mediaUrl: pMedia.trim() || null, description: pDesc.trim() || null, specialty: spec }),
+      });
+      setOk(`${pKind === "REEL" ? "Reel" : "Publicación"} publicada.`);
+      setPTitle("");
+      setPMedia("");
+      setPDesc("");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function createSession() {
+    if (!sTopic.trim()) {
+      setError("El tema es obligatorio.");
+      return;
+    }
+    try {
+      const s = await api("/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          professionalId: user.id,
+          clientId: sClient || null,
+          type: sType,
+          topic: sTopic.trim(),
+        }),
+      });
+      setOk(`${sType === "LIVE" ? "Live creado" : "Videollamada programada"}. Enlace: ${s.meetUrl}`);
+      setSTopic("");
+      setSClient("");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function approveProduct(id, okVal) {
+    try {
+      await api(`/api/products/${id}/approve`, {
+        method: "PATCH",
+        body: JSON.stringify({ approved: okVal, approvedById: user.id }),
+      });
+      setOk(okVal ? "Producto avalado." : "Aval retirado.");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  function join(url) {
+    if (url) Linking.openURL(url).catch(() => {});
+  }
+
+  const mealsByUser = {};
+  meals.forEach((m) => {
+    mealsByUser[m.userId] = mealsByUser[m.userId] || [];
+    mealsByUser[m.userId].push(m);
+  });
+
+  function weekly(userId) {
+    const map = {};
+    (mealsByUser[userId] || []).forEach((m) => {
+      const k = weekKey(m.scheduledAt || m.createdAt);
+      map[k] = map[k] || { kcal: 0, n: 0 };
+      map[k].kcal += Number(m.calories || 0);
+      map[k].n += 1;
+    });
+    return Object.entries(map).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 8);
+  }
+
+  const monthNow = new Date().toISOString().slice(0, 7);
+
+  if (!user) {
+    return (
+      <View style={styles.root}>
+        <StatusBar style="dark" />
+        <View style={styles.loginCard}>
+          <Text style={styles.brand}>Nutri<Text style={{ color: GREEN }}>Flow</Text></Text>
+          <Text style={[styles.appTag, { color: TEAL }]}>APP PROFESIONAL</Text>
+          <Text style={styles.title}>Atiende a tus clientes</Text>
+          <Field label="Correo" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+          <Field label="Contraseña" value={pass} onChangeText={setPass} secureTextEntry />
+          {error !== "" && <Text style={styles.err}>{error}</Text>}
+          <Pressable style={[styles.btn, { backgroundColor: TEAL }]} onPress={login} disabled={loading}>
+            <Text style={styles.btnTxt}>{loading ? "Ingresando…" : "Ingresar"}</Text>
+          </Pressable>
+          <Text style={styles.hint}>Reels, videollamadas, lives, progreso e ingresos.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  const TABS = [["clientes", "Clientes"], ["reels", "Reels"], ["sesiones", "Lives/Tel"], ["progreso", "Progreso"], ["ingresos", "Ingresos"], ["avales", "Avales"]];
+
+  return (
+    <View style={styles.root}>
+      <StatusBar style="dark" />
+      <View style={styles.header}>
+        <Text style={styles.hello}>Hola, {user.name.split(" ")[0]}</Text>
+        <Text style={styles.sub}>{spec} · {clients.length} clientes · S/ {Number(payments.total || 0).toFixed(2)} este mes</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
+          {TABS.map(([t, label]) => (
+            <Pressable key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => { setTab(t); setSelClient(null); }}>
+              <Text style={[styles.tabTxt, tab === t && styles.tabTxtOn]}>{label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+      <ScrollView
+        style={styles.body}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load()} tintColor={GREEN} />}
+      >
+        {error !== "" && <Text style={styles.err}>{error}</Text>}
+        {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
+
+        {tab === "clientes" && !selClient && (
+          <View>
+            {clients.length === 0 && <Text style={styles.muted}>Sin clientes todavía.</Text>}
+            {clients.map((c) => (
+              <Pressable key={c.id} style={styles.row} onPress={() => setSelClient(c)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowT}>{c.name}</Text>
+                  <Text style={styles.rowS}>{c.email} · {(mealsByUser[c.id] || []).length} registros</Text>
+                </View>
+                <Text style={styles.more}>›</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {tab === "clientes" && selClient && (
+          <View>
+            <Pressable onPress={() => setSelClient(null)}>
+              <Text style={styles.back}>‹ Volver a clientes</Text>
+            </Pressable>
+            <Text style={styles.secT}>{selClient.name}</Text>
+            <Text style={styles.rowS}>{selClient.email} · Membresía {selClient.membership || "BASICA"}</Text>
+            <Text style={styles.secT2}>Todo lo ocurrido en plataforma</Text>
+            {(mealsByUser[selClient.id] || []).slice(-15).reverse().map((m) => (
+              <View key={m.id} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowT}>{m.name || m.type}{m.source === "RESTAURANTE" ? " 🍽️" : ""}</Text>
+                  <Text style={styles.rowS}>{m.calories ?? 0} kcal · {m.proteinG ?? 0}g prot · {String(m.scheduledAt || m.createdAt).slice(0, 10)}</Text>
+                </View>
+              </View>
+            ))}
+            {(mealsByUser[selClient.id] || []).length === 0 && <Text style={styles.muted}>Sin registros todavía.</Text>}
+            <Pressable
+              style={[styles.btn, { backgroundColor: TEAL, marginTop: 10 }]}
+              onPress={() => {
+                setSTopic(`Seguimiento ${selClient.name}`);
+                setSClient(selClient.id);
+                setSType("VIDEOCALL");
+                setTab("sesiones");
+              }}
+            >
+              <Text style={styles.btnTxt}>Agendar videollamada</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {tab === "reels" && (
+          <View>
+            <View style={styles.card}>
+              <Text style={styles.cardT}>Publicar reel / tip ({spec})</Text>
+              <View style={styles.chips}>
+                {["REEL", "VIDEO", "FOTO", "TIP"].map((k) => (
+                  <Pressable key={k} style={[styles.chip, pKind === k && styles.chipOn]} onPress={() => setPKind(k)}>
+                    <Text style={[styles.chipTxt, pKind === k && styles.chipTxtOn]}>{k}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Field label="Título" value={pTitle} onChangeText={setPTitle} placeholder="Rutina de pierna en 20 min" />
+              <Field label="URL foto/video (opcional)" value={pMedia} onChangeText={setPMedia} autoCapitalize="none" placeholder="https://…" />
+              <Field label="Descripción / tip" value={pDesc} onChangeText={setPDesc} placeholder="3 series de 12…" />
+              <Pressable style={styles.btn} onPress={publish}>
+                <Text style={styles.btnTxt}>Publicar</Text>
+              </Pressable>
+            </View>
+            {posts.map((p) => (
+              <View key={p.id} style={styles.card}>
+                <Text style={[styles.rowS, { fontWeight: "800", color: TEAL }]}>{p.kind} · {p.specialty || ""}</Text>
+                <Text style={styles.cardT}>{p.title}</Text>
+                {p.mediaUrl && p.kind === "FOTO" ? (
+                  <Image source={{ uri: p.mediaUrl }} style={{ width: "100%", height: 180, borderRadius: 12, marginTop: 8 }} />
+                ) : null}
+                {p.description ? <Text style={styles.rowS}>{p.description}</Text> : null}
+                {p.mediaUrl && p.kind !== "FOTO" ? (
+                  <Pressable style={[styles.btn, { backgroundColor: DARK, marginTop: 10 }]} onPress={() => Linking.openURL(p.mediaUrl).catch(() => {})}>
+                    <Text style={styles.btnTxt}>▶ Ver {p.kind === "LIVE" ? "live" : "video"}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {tab === "sesiones" && (
+          <View>
+            <View style={styles.card}>
+              <Text style={styles.cardT}>Nueva videollamada o live</Text>
+              <View style={styles.chips}>
+                {["VIDEOCALL", "LIVE"].map((k) => (
+                  <Pressable key={k} style={[styles.chip, sType === k && styles.chipOn]} onPress={() => setSType(k)}>
+                    <Text style={[styles.chipTxt, sType === k && styles.chipTxtOn]}>{k === "VIDEOCALL" ? "Videollamada" : "Live"}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Field label="Tema (ej. Capacitación nutrición)" value={sTopic} onChangeText={setSTopic} placeholder="Tema de la sesión" />
+              <Text style={styles.label}>Cliente (opcional en lives)</Text>
+              <View style={styles.chips}>
+                <Pressable style={[styles.chip, sClient === "" && styles.chipOn]} onPress={() => setSClient("")}>
+                  <Text style={[styles.chipTxt, sClient === "" && styles.chipTxtOn]}>Abierto</Text>
+                </Pressable>
+                {clients.map((c) => (
+                  <Pressable key={c.id} style={[styles.chip, sClient === c.id && styles.chipOn]} onPress={() => setSClient(c.id)}>
+                    <Text style={[styles.chipTxt, sClient === c.id && styles.chipTxtOn]}>{c.name.split(" ")[0]}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable style={[styles.btn, { backgroundColor: TEAL, marginTop: 10 }]} onPress={createSession}>
+                <Text style={styles.btnTxt}>Crear y obtener enlace</Text>
+              </Pressable>
+            </View>
+            {sessions.map((s) => (
+              <View key={s.id} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowT}>{s.type === "LIVE" ? "🔴 LIVE" : "📞 Videollamada"} · {s.topic}</Text>
+                  <Text style={styles.rowS}>{s.client ? s.client.name : "Abierto"} · {s.status}</Text>
+                </View>
+                <Pressable style={styles.join} onPress={() => join(s.meetUrl)}>
+                  <Text style={styles.joinTxt}>Unirse</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {tab === "progreso" && (
+          <View>
+            <Text style={styles.secT}>Avance semana a semana</Text>
+            {clients.length === 0 && <Text style={styles.muted}>Sin clientes todavía.</Text>}
+            {clients.map((c) => (
+              <View key={c.id} style={styles.card}>
+                <Text style={styles.cardT}>{c.name}</Text>
+                {weekly(c.id).length === 0 && <Text style={styles.rowS}>Sin registros.</Text>}
+                {weekly(c.id).map(([w, d]) => (
+                  <View key={w} style={styles.prow}>
+                    <Text style={styles.rowT}>{w}</Text>
+                    <Text style={styles.rowS}>{d.n} comidas · {d.kcal} kcal</Text>
+                    <View style={styles.barBg}>
+                      <View style={[styles.barFg, { width: `${Math.min(100, d.n * 20)}%` }]} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {tab === "ingresos" && (
+          <View>
+            <View style={styles.card}>
+              <Text style={styles.cardT}>Ingresos {monthNow}</Text>
+              <Text style={styles.big}>S/ {Number(payments.total || 0).toFixed(2)}</Text>
+              <Text style={styles.rowS}>{payments.count || 0} cobros registrados</Text>
+            </View>
+            {(payments.payments || []).map((p) => (
+              <View key={p.id} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowT}>S/ {Number(p.amount).toFixed(2)} · {p.concept}</Text>
+                  <Text style={styles.rowS}>{p.user ? p.user.name : ""} · {p.month}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+        {tab === "avales" && (
+          <View>
+            <Text style={styles.secT}>Productos pendientes de aval</Text>
+            <Text style={styles.rowS}>Solo marcas reconocidas, avaladas por nutricionista.</Text>
+            {pending.length === 0 && <Text style={styles.muted}>Sin pendientes. Todo avalado ✓</Text>}
+            {pending.map((p) => (
+              <View key={p.id} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowT}>{p.name}</Text>
+                  <Text style={styles.rowS}>{p.brand}</Text>
+                </View>
+                <Pressable style={[styles.btn, { padding: 10, marginTop: 0 }]} onPress={() => approveProduct(p.id, true)}>
+                  <Text style={styles.btnTxt}>Avalar</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </View>
+  );
+
+  function weekly(userId) {
+    const map = {};
+    (mealsByUser[userId] || []).forEach((m) => {
+      const k = weekKey(m.scheduledAt || m.createdAt);
+      map[k] = map[k] || { kcal: 0, n: 0 };
+      map[k].kcal += Number(m.calories || 0);
+      map[k].n += 1;
+    });
+    return Object.entries(map).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 8);
+  }
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#fbfaf7" },
+  loginCard: { flex: 1, justifyContent: "center", padding: 24 },
+  brand: { fontSize: 30, fontWeight: "900", color: "#12211a" },
+  appTag: { fontSize: 11, fontWeight: "800", letterSpacing: 1.5, marginTop: 4 },
+  title: { fontSize: 22, fontWeight: "800", color: "#12211a", marginTop: 12, marginBottom: 16 },
+  field: { marginBottom: 12 },
+  label: { fontSize: 13, fontWeight: "700", color: "#45564c", marginBottom: 6 },
+  input: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#dbe1d8", borderRadius: 12, padding: 12, fontSize: 15, color: "#12211a" },
+  btn: { backgroundColor: GREEN, borderRadius: 999, padding: 15, alignItems: "center", marginTop: 6 },
+  btnTxt: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  err: { color: "#e11d48", fontWeight: "700", marginBottom: 8 },
+  ok: { color: "#15803d", fontWeight: "700", marginBottom: 8 },
+  muted: { color: "#5f7167", fontSize: 13 },
+  header: { paddingTop: 56, paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#dbe1d8" },
+  hello: { fontSize: 22, fontWeight: "900", color: "#12211a" },
+  sub: { fontSize: 12, color: "#5f7167", marginTop: 2 },
+  tabs: { marginTop: 12 },
+  tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f1f5e9", marginRight: 8 },
+  tabOn: { backgroundColor: "#12211a" },
+  tabTxt: { fontWeight: "700", color: "#45564c" },
+  tabTxtOn: { color: "#fff" },
+  body: { flex: 1, padding: 16 },
+  secT: { fontSize: 18, fontWeight: "900", color: "#12211a", marginBottom: 10, marginTop: 4 },
+  card: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#dbe1d8", borderRadius: 20, padding: 18, marginBottom: 14 },
+  cardT: { fontSize: 16, fontWeight: "800", color: "#12211a", marginBottom: 6 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: "#dbe1d8" },
+  chipOn: { backgroundColor: "#dcfce7", borderColor: GREEN },
+  chipTxt: { color: "#5f7167", fontSize: 12, fontWeight: "700" },
+  chipTxtOn: { color: "#15803d" },
+  row: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#dbe1d8", borderRadius: 14, padding: 12, marginBottom: 8 },
+  rowT: { fontSize: 14, fontWeight: "800", color: "#12211a" },
+  rowS: { fontSize: 12, color: "#5f7167", marginTop: 2 },
+  more: { fontSize: 22, fontWeight: "800", color: GREEN },
+  back: { color: "#15803d", fontWeight: "800", marginBottom: 8 },
+  join: { backgroundColor: DARK, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10 },
+  joinTxt: { color: "#fff", fontWeight: "800" },
+  big: { fontSize: 30, fontWeight: "900", color: "#12211a", marginTop: 4 },
+  prow: { marginBottom: 10 },
+  barBg: { height: 8, borderRadius: 4, backgroundColor: "#e8efe0", marginTop: 6, overflow: "hidden" },
+  barFg: { height: "100%", backgroundColor: GREEN, borderRadius: 4 },
+});

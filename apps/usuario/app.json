@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "NutriFlow Usuario",
+    "slug": "nutriflow-usuario",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "nutriflow-usuario",
+    "android": {
+      "package": "com.nutriflow.usuario",
+      "versionCode": 1,
+      "usesCleartextTraffic": true
+    },
+    "extra": {
+      "apiUrl": "http://192.168.18.167:3001",
+      "eas": {
+        "projectId": "e6883435-5f5f-434e-8a7c-62f53876f86d"
+      }
+    },
+    "owner": "vicsoft1223"
+  }
+}

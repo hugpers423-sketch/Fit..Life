@@ -7,15 +7,43 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  SUPER_ADMIN
+  VENDEDOR
+  USUARIO
+  ORIENTADOR
+  QUIOSK
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String
-  role      String   @default("USER")
+  role      Role     @default(USUARIO)
+  specialty String?
+  membership String?  @default("BASICA")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   profile   Profile?
   meals     Meal[]
+  workouts  Workout[]
+  gyms      Gym[]
+  restaurants Restaurant[]
+  visits    Visit[]
+  posts     Post[]
+  sessionsAsPro    Session[] @relation("SessionsAsPro")
+  sessionsAsClient Session[] @relation("SessionsAsClient")
+  paymentsByUser   Payment[] @relation("PaymentsByUser")
+  paymentsForPro   Payment[] @relation("PaymentsForPro")
+  tokens     Token[]
+}
+
+model Token {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 }
 
 model Profile {
@@ -37,6 +65,9 @@ model Profile {
   targetCarbs     Int?
   targetFat       Int?
   faceVerified    Boolean @default(false)
+  wakeTime        String?
+  workStart       String?
+  workEnd         String?
 }
 
 model Meal {
@@ -44,6 +75,10 @@ model Meal {
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   type            String
+  name            String?
+  dishId          String?
+  restaurantId    String?
+  source          String?
   scheduledAt     DateTime
   eatenAt         DateTime?
   photoUrl        String?
@@ -62,6 +97,168 @@ model Meal {
   updatedAt       DateTime @updatedAt
 
   @@index([userId, eatenAt])
+}
+
+model Workout {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String
+  date           DateTime @default(now())
+  durationMin    Int?
+  caloriesBurned Float?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId, date])
+}
+
+model Gym {
+  id        String   @id @default(cuid())
+  ownerId   String?
+  owner     User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  name      String
+  address   String
+  service   String
+  videoUrl  String?
+  openHour  Int?
+  closeHour Int?
+  lat       Float?
+  lng       Float?
+  products  Product[]
+  visits    Visit[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+model Post {
+  id          String   @id @default(cuid())
+  authorId    String
+  author      User?    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  kind        String   @default("REEL")
+  title       String
+  mediaUrl    String?
+  description String?
+  specialty   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([authorId, createdAt])
+}
+
+model Session {
+  id             String    @id @default(cuid())
+  professionalId String
+  professional   User?     @relation("SessionsAsPro", fields: [professionalId], references: [id], onDelete: Cascade)
+  clientId       String?
+  client         User?     @relation("SessionsAsClient", fields: [clientId], references: [id], onDelete: SetNull)
+  type           String    @default("VIDEOCALL")
+  topic          String
+  scheduledAt    DateTime?
+  meetUrl        String?
+  status         String    @default("ACTIVA")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([professionalId, scheduledAt])
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User?    @relation("PaymentsByUser", fields: [userId], references: [id], onDelete: Cascade)
+  professionalId String?
+  professional   User?    @relation("PaymentsForPro", fields: [professionalId], references: [id], onDelete: SetNull)
+  amount         Float
+  concept        String
+  month          String
+  createdAt      DateTime @default(now())
+
+  @@index([professionalId, month])
+}
+
+model Dish {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  price        Float?
+  photoUrl     String?
+  calories     Int?
+  proteinG     Float?
+  day          Int?
+  special      Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([restaurantId, day])
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  gymId        String?
+  gym          Gym?     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  name         String
+  brand        String
+  approved     Boolean  @default(false)
+  approvedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([gymId])
+}
+
+model Visit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gymId     String
+  gym       Gym?     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  date      DateTime @default(now())
+  hour      Int?
+  createdAt DateTime @default(now())
+
+  @@index([gymId, date])
+  @@index([userId, date])
+}
+
+model Restaurant {
+  id        String   @id @default(cuid())
+  ownerId   String?
+  owner     User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  name      String
+  address   String
+  service   String
+  videoUrl  String?
+  openHour  Int?
+  closeHour Int?
+  lat       Float?
+  lng       Float?
+  menu      Dish[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+model Recipe {
+  id          String   @id @default(cuid())
+  name        String
+  day         Int
+  mealType    String   @default("Comida")
+  videoUrl    String?
+  ingredients Json?
+  totalPrice  Float?
+  calories    Int?
+  proteinG    Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([day, mealType])
+  @@index([day])
 }
 
 model Food {
