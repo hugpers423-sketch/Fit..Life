@@ -29,6 +29,7 @@ let API_ROLE = "";
 const GREEN = "#22c55e";
 const TEAL = "#14b8a6";
 const ORANGE = "#f97316";
+const DARK = "#04150a";
 
 async function api(path, init) {
   const res = await fetch(`${API_URL}${path}`, {
