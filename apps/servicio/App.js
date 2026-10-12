@@ -23,20 +23,93 @@ try {
 } catch (e) {}
 let API_TOKEN = "";
 let API_ROLE = "";
+let REFRESH_TOKEN = "";
+
+// --- Sesión persistente (refresh token) ---
+// Usa AsyncStorage en móvil (si está instalado) y localStorage en web.
+// El require va en try/catch para no romper la app si el módulo no existe.
+let AsyncStorage = null;
+try {
+  AsyncStorage = require("@react-native-async-storage/async-storage").default;
+} catch (e) {
+  AsyncStorage = null;
+}
+async function storeGet(key) {
+  try {
+    if (AsyncStorage) return await AsyncStorage.getItem(key);
+    if (typeof localStorage !== "undefined") return localStorage.getItem(key);
+  } catch (e) {}
+  return null;
+}
+async function storeSet(key, value) {
+  try {
+    if (AsyncStorage) return await AsyncStorage.setItem(key, value);
+    if (typeof localStorage !== "undefined") localStorage.setItem(key, value);
+  } catch (e) {}
+}
+async function storeDel(key) {
+  try {
+    if (AsyncStorage) return await AsyncStorage.removeItem(key);
+    if (typeof localStorage !== "undefined") localStorage.removeItem(key);
+  } catch (e) {}
+}
+async function persistSession(data) {
+  API_TOKEN = data.token || "";
+  REFRESH_TOKEN = data.refreshToken || "";
+  API_ROLE = (data.user && data.user.role) || "";
+  await storeSet("nf_token", API_TOKEN);
+  await storeSet("nf_refresh", REFRESH_TOKEN);
+  await storeSet("nf_user", JSON.stringify(data.user || null));
+}
+async function clearSession() {
+  API_TOKEN = "";
+  REFRESH_TOKEN = "";
+  API_ROLE = "";
+  await storeDel("nf_token");
+  await storeDel("nf_refresh");
+  await storeDel("nf_user");
+}
+async function refreshToken() {
+  if (!REFRESH_TOKEN) return false;
+  try {
+    const res = await fetch(`${API_URL}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: REFRESH_TOKEN }),
+    });
+    if (!res.ok) {
+      await clearSession();
+      return false;
+    }
+    const data = await res.json();
+    await persistSession(data);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 const GREEN = "#22c55e";   // --brand-vivid
 const ORANGE = "#f97316";  // --orange-vivid
 const BRAND = "#15803d";   // --brand
 
 async function api(path, init) {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
-      ...(API_ROLE ? { "x-role": API_ROLE } : {}),
-      ...((init && init.headers) || {}),
-    },
-  });
+  const isAuthPath = path.startsWith("/api/auth/") && path !== "/api/auth/me";
+  const doFetch = () =>
+    fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
+        ...(API_ROLE ? { "x-role": API_ROLE } : {}),
+        ...((init && init.headers) || {}),
+      },
+    });
+  let res = await doFetch();
+  // Sesión expirada: renovar con el refresh token y reintentar una vez.
+  if (res.status === 401 && !isAuthPath) {
+    if (await refreshToken()) res = await doFetch();
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `API ${res.status}`);
@@ -108,9 +181,8 @@ export default function App() {
         method: "POST",
         body: JSON.stringify({ email: email.trim(), password: pass }),
       });
+      await persistSession(data);
       setUser(data.user);
-      API_TOKEN = data.token || "";
-      API_ROLE = (data.user && data.user.role) || "";
     } catch (e) {
       setError(e.message);
     } finally {
@@ -165,8 +237,7 @@ export default function App() {
     try {
       await api("/api/auth/logout", { method: "POST" });
     } catch (_) {}
-    API_TOKEN = "";
-    API_ROLE = "";
+    await clearSession();
     setUser(null);
     setMode("login");
     setOk("");
@@ -205,6 +276,28 @@ export default function App() {
       setRefreshing(false);
     }
   }
+
+  // Restaura la sesión guardada al abrir la app (valida y renueva el token).
+  useEffect(() => {
+    (async () => {
+      const t = await storeGet("nf_token");
+      const r = await storeGet("nf_refresh");
+      const uraw = await storeGet("nf_user");
+      if (!t || !r) return;
+      API_TOKEN = t;
+      REFRESH_TOKEN = r;
+      let u = null;
+      try { u = uraw ? JSON.parse(uraw) : null; } catch (e) {}
+      if (u && u.role) API_ROLE = u.role;
+      try {
+        const me = await api("/api/auth/me");
+        if (me && me.user) u = me.user;
+        if (u) setUser(u);
+      } catch (e) {
+        await clearSession();
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (user) load(user.id);

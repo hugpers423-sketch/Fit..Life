@@ -64,6 +64,15 @@ GET  /api/admin/users          → Listar TODOS los usuarios (SOLO SUPER_ADMIN)
 - **apps/professional**, **apps/servicio**, **apps/mobile** (personal: ORIENTADOR, VENDEDOR, SUPER_ADMIN): recuperación de contraseña + **Salir**. El alta de estos roles la hace el Admin General vía `/api/users` (el registro público solo crea USUARIO).
 - El flujo de recuperación no necesita correo: `forgot-password` entrega el `resetToken` en la respuesta y la app pide definir la nueva contraseña. En producción, con SMTP, devolver solo `{ ok: true }` y enviar el enlace por email.
 
+### Sesión persistente en apps móviles (Sprint 3)
+
+- Las 4 apps (`usuario`, `professional`, `servicio`, `mobile`) guardan la sesión (access + refresh + usuario) en el dispositivo y la restauran al abrir: usan `@react-native-async-storage/async-storage` en nativo y caen a `localStorage` en web.
+- La persistencia es tolerante a fallos: el `require` de AsyncStorage va en `try/catch`, así que si el módulo no está instalado la app sigue funcionando (en memoria/web) y **no** se rompe al arrancar.
+- **Refresh automático**: si una llamada autenticada responde `401`, el cliente llama a `/api/auth/refresh` con el refresh token, renueva el access token, lo vuelve a persistir y reintenta la petición **una vez**. Si el refresh también falla, se limpia la sesión y se vuelve al login.
+- Al iniciar sesión/registrarse se persiste la sesión (`persistSession`) y el botón **Salir** la limpia (`clearSession`) además de revocar en el servidor.
+- Las apps restauradoras validan el token guardado contra `/api/auth/me` antes de mostrar el contenido (en `mobile` el arranque espera a la restauración).
+- Si se agrega una app nueva: declarar `@react-native-async-storage/async-storage` y ejecutar `pnpm install` para habilitar la persistencia en nativo.
+
 ### Credenciales demo
 
 ```
