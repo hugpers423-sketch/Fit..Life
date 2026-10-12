@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars, ProgressBar } from "./nfui";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 let API_URL = "http://192.168.18.167:3001";
@@ -126,6 +127,13 @@ function Field({ label, ...props }) {
   );
 }
 
+function timeAgo(d, now) {
+  const s = Math.max(0, Math.round((now - new Date(d).getTime()) / 1000));
+  if (s < 60) return `hace ${s}s`;
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  return `hace ${Math.floor(s / 3600)} h`;
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState("vendedor@nutriflow.com");
@@ -140,6 +148,14 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
+  const [syncAt, setSyncAt] = useState(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  useReduceMotion();
   const [gName, setGName] = useState("");
   const [gAddress, setGAddress] = useState("");
   const [gService, setGService] = useState("");
@@ -270,6 +286,7 @@ export default function App() {
       setLives(s.filter((x) => x.type === "LIVE"));
       setProducts(pr.filter((x) => g.some((gym) => gym.id === x.gymId)));
       setError("");
+      setSyncAt(new Date());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -548,19 +565,38 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.header}>
         <View style={styles.headerRow}>
+          <View style={[styles.avatar, { backgroundColor: C.orangeVivid }]}>
+            <Text style={styles.avatarTxt}>{String(user.name || "V").slice(0, 1).toUpperCase()}</Text>
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.hello}>Hola, {user.name.split(" ")[0]}</Text>
-            <Text style={styles.sub}>{clients.length} clientes · {gyms.length} gimnasios · {rests.length} restaurantes · sincronizado</Text>
+            <View style={styles.subRow}>
+              <Pill color={C.brand} soft={C.brandSoft}>Portal de negocios</Pill>
+              <Text style={styles.sub}>{syncAt ? timeAgo(syncAt, now) : "sincronizando…"}</Text>
+            </View>
           </View>
           <Pressable style={styles.logoutBtn} onPress={logout}>
             <Text style={styles.logoutTxt}>Salir</Text>
           </Pressable>
         </View>
+        <View style={styles.kpiRow}>
+          <KpiCard index={0} icon="👥" value={clients.length} label="Clientes" color={C.orangeVivid} />
+          <KpiCard index={1} icon="🏋️" value={gyms.length} label="Gimnasios" color={C.tealVivid} />
+        </View>
+        <View style={styles.kpiRow}>
+          <KpiCard index={2} icon="🍽️" value={rests.length} label="Restaurantes" color={C.coralVivid} />
+          <KpiCard index={3} icon="📦" value={(products || []).length} label="Productos" color={C.amberVivid} />
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
           {[["clientes", "Clientes"], ["gimnasios", "Gimnasios"], ["restaurantes", "Restaurantes"], ["contenido", "Contenido"], ["productos", "Productos"]].map(([t, label]) => (
-            <Pressable key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => setTab(t)}>
+            <Press
+              key={t}
+              style={[styles.tab, tab === t && styles.tabOn]}
+              scale={0.94}
+              onPress={() => setTab(t)}
+            >
               <Text style={[styles.tabTxt, tab === t && styles.tabTxtOn]}>{label}</Text>
-            </Pressable>
+            </Press>
           ))}
         </ScrollView>
       </View>
@@ -572,14 +608,27 @@ export default function App() {
         {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
         {tab === "clientes" && (
           <View>
-            {clients.length === 0 && <Text style={styles.muted}>Sin clientes todavía.</Text>}
-            {clients.map((c) => (
-              <View key={c.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>{c.name}</Text>
-                  <Text style={styles.rowS}>{c.email}</Text>
+            <SectionHead title="Tus clientes" count={clients.length} />
+            {clients.length === 0 && (
+              <EmptyState
+                icon="👥"
+                title="Sin clientes todavía"
+                text="Los usuarios que usen tu gimnasio o restaurante aparecerán aquí."
+              />
+            )}
+            {clients.map((c, i) => (
+              <FadeUp key={c.id} index={i}>
+                <View style={sv.card}>
+                  <View style={sv.avatar}>
+                    <Text style={sv.avatarTxt}>{String(c.name || "?").slice(0, 1).toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowT}>{c.name}</Text>
+                    <Text style={styles.rowS}>{c.email}</Text>
+                  </View>
+                  <Pill color={C.brand} soft={C.brandSoft}>Activo</Pill>
                 </View>
-              </View>
+              </FadeUp>
             ))}
           </View>
         )}
@@ -763,6 +812,10 @@ const styles = StyleSheet.create({
   linkBtn: { marginTop: 10 },
   link: { color: "#15803d", fontWeight: "800", textAlign: "center" },
   headerRow: { flexDirection: "row", alignItems: "flex-start" },
+  avatar: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginRight: 10 },
+  avatarTxt: { color: "#04150a", fontWeight: "900", fontSize: 18 },
+  subRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 5, flexWrap: "wrap" },
+  kpiRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   logoutBtn: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#dbe1d8", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6, marginLeft: 10 },
   logoutTxt: { color: "#45564c", fontWeight: "800", fontSize: 12 },
   header: { paddingTop: 56, paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#dbe1d8" },
@@ -784,4 +837,20 @@ const styles = StyleSheet.create({
   rowT: { fontSize: 14, fontWeight: "800", color: "#12211a" },
   rowS: { fontSize: 12, color: "#5f7167", marginTop: 2 },
   del: { color: "#e11d48", fontWeight: "700" },
+});
+
+// --- Estilos del rediseño (servicio) ---
+const sv = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#dbe1d8",
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 10,
+  },
+  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#ffedd5", alignItems: "center", justifyContent: "center", marginRight: 10 },
+  avatarTxt: { fontWeight: "900", color: "#c2410c", fontSize: 16 },
 });

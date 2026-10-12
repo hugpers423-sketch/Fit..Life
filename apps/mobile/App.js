@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { FadeUp, useReduceMotion } from "./nfui";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 // En emulador Android usa http://10.0.2.2:3001 ; en iOS/web http://localhost:3001
@@ -124,12 +125,27 @@ const ROLE_COLORS = {
 
 const FILTERS = ["Todos", "USUARIO", "ORIENTADOR", "VENDEDOR", "SUPER_ADMIN", "QUIOSK"];
 
+function timeAgo(d, now) {
+  const s = Math.max(0, Math.round((now - new Date(d).getTime()) / 1000));
+  if (s < 60) return `hace ${s}s`;
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  return `hace ${Math.floor(s / 3600)} h`;
+}
+
 export default function App() {
   const [users, setUsers] = useState([]);
   const [meals, setMeals] = useState([]);
   const [workouts, setWorkouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncAt, setSyncAt] = useState(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  useReduceMotion();
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("Todos");
   const [token, setToken] = useState("");
@@ -236,6 +252,7 @@ export default function App() {
       setMeals(m.ok !== false ? m : []);
       setWorkouts(w.ok !== false ? w : []);
       setError("");
+      setSyncAt(new Date());
     } catch (e) {
       // Solo un 401 real cierra la sesión; un 500/red no debe desloguear.
       if (e && e.status === 401) {
@@ -330,7 +347,7 @@ export default function App() {
           ) : null}
         </View>
         <Text style={styles.hTitle}>Dashboard General</Text>
-        <Text style={styles.hSub}>Lo mismo que el Admin General web</Text>
+        <Text style={styles.hSub}>Lo mismo que el Admin General web · {syncAt ? timeAgo(syncAt, now) : "sincronizando…"}</Text>
       </View>
 
       {!token ? (
@@ -401,33 +418,39 @@ export default function App() {
             </View>
           )}
 
-          <Text style={styles.section}>Plataforma en general</Text>
-          <View style={styles.kpiGrid}>
-            {kpis.map((k) => (
-              <View key={k.label} style={styles.kpi}>
-                <Text style={styles.kpiLabel}>{k.label}</Text>
-                <Text style={styles.kpiVal}>{k.value}</Text>
-                <View style={[styles.kpiBar, { backgroundColor: k.color }]} />
+          <FadeUp index={0}>
+            <Text style={styles.section}>Plataforma en general</Text>
+            <View style={styles.kpiGrid}>
+              {kpis.map((k) => (
+                <View key={k.label} style={styles.kpi}>
+                  <Text style={styles.kpiLabel}>{k.label}</Text>
+                  <Text style={styles.kpiVal}>{k.value}</Text>
+                  <View style={[styles.kpiBar, { backgroundColor: k.color }]} />
+                </View>
+              ))}
+            </View>
+          </FadeUp>
+
+          <FadeUp index={1}>
+            <Text style={styles.section}>Apps independientes</Text>
+            {["USUARIO", "ORIENTADOR", "VENDEDOR"].map((r) => (
+              <View key={r} style={styles.appCard}>
+                <View style={[styles.dot, { backgroundColor: ROLE_COLORS[r] }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.appName}>
+                    {r === "USUARIO" ? "App Usuario" : r === "ORIENTADOR" ? "App Orientador" : "App Vendedor"}
+                  </Text>
+                  <Text style={styles.appSub}>
+                    {(byRole[r] || 0)} cuentas · {meals.filter((m) => users.find((u) => u.id === m.userId)?.role === r).length} comidas
+                  </Text>
+                </View>
               </View>
             ))}
-          </View>
+          </FadeUp>
 
-          <Text style={styles.section}>Apps independientes</Text>
-          {["USUARIO", "ORIENTADOR", "VENDEDOR"].map((r) => (
-            <View key={r} style={styles.appCard}>
-              <View style={[styles.dot, { backgroundColor: ROLE_COLORS[r] }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.appName}>
-                  {r === "USUARIO" ? "App Usuario" : r === "ORIENTADOR" ? "App Orientador" : "App Vendedor"}
-                </Text>
-                <Text style={styles.appSub}>
-                  {(byRole[r] || 0)} cuentas · {meals.filter((m) => users.find((u) => u.id === m.userId)?.role === r).length} comidas
-                </Text>
-              </View>
-            </View>
-          ))}
-
-          <Text style={styles.section}>Usuarios</Text>
+          <FadeUp index={2}>
+            <Text style={styles.section}>Usuarios</Text>
+          </FadeUp>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
             {FILTERS.map((f) => (
               <TouchableOpacity
@@ -439,31 +462,37 @@ export default function App() {
               </TouchableOpacity>
             ))}
           </ScrollView>
-          {shown.map((u) => (
-            <View key={u.id} style={styles.row}>
-              <View style={[styles.avatar, { backgroundColor: ROLE_COLORS[u.role] || "#475569" }]}>
-                <Text style={styles.avatarTxt}>
-                  {String(u.name || "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
-                </Text>
+          {shown.map((u, i) => (
+            <FadeUp key={u.id} index={i} delay={i * 35}>
+              <View style={styles.row}>
+                <View style={[styles.avatar, { backgroundColor: ROLE_COLORS[u.role] || "#475569" }]}>
+                  <Text style={styles.avatarTxt}>
+                    {String(u.name || "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowName}>{u.name}</Text>
+                  <Text style={styles.rowMail}>{u.email}</Text>
+                </View>
+                <Text style={[styles.role, { color: ROLE_COLORS[u.role] || C.muted }]}>{u.role}</Text>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowName}>{u.name}</Text>
-                <Text style={styles.rowMail}>{u.email}</Text>
-              </View>
-              <Text style={[styles.role, { color: ROLE_COLORS[u.role] || C.muted }]}>{u.role}</Text>
-            </View>
+            </FadeUp>
           ))}
 
-          <Text style={styles.section}>Actividad reciente</Text>
+          <FadeUp index={2}>
+            <Text style={styles.section}>Actividad reciente</Text>
+          </FadeUp>
           {recent.length === 0 && <Text style={styles.muted}>Sin actividad todavía.</Text>}
-          {recent.map((m) => (
-            <View key={m.id} style={styles.row}>
-              <View style={styles.liveDot} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowName}>{m.type} — {m.calories ?? 0} kcal</Text>
-                <Text style={styles.rowMail}>{new Date(m.createdAt).toLocaleString("es")}</Text>
+          {recent.map((m, i) => (
+            <FadeUp key={m.id} index={i} delay={i * 40}>
+              <View style={styles.row}>
+                <View style={styles.liveDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowName}>{m.type} — {m.calories ?? 0} kcal</Text>
+                  <Text style={styles.rowMail}>{new Date(m.createdAt).toLocaleString("es")}</Text>
+                </View>
               </View>
-            </View>
+            </FadeUp>
           ))}
           <View style={{ height: 40 }} />
         </ScrollView>

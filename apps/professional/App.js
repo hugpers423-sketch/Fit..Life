@@ -15,6 +15,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars } from "./nfui";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 let API_URL = "http://192.168.18.167:3001";
@@ -130,6 +131,13 @@ function Field({ label, ...props }) {
   );
 }
 
+function timeAgo(d, now) {
+  const s = Math.max(0, Math.round((now - new Date(d).getTime()) / 1000));
+  if (s < 60) return `hace ${s}s`;
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  return `hace ${Math.floor(s / 3600)} h`;
+}
+
 function weekKey(iso) {
   const d = new Date(iso);
   const onejan = new Date(d.getFullYear(), 0, 1);
@@ -163,6 +171,21 @@ export default function App() {
   const [sTopic, setSTopic] = useState("");
   const [sClient, setSClient] = useState("");
   const [sType, setSType] = useState("VIDEOCALL");
+  const [syncAt, setSyncAt] = useState(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  useReduceMotion();
+
+  // Métricas del panel (lo mismo que muestra el dashboard de la maqueta).
+  const monthTotal = Number(payments.total || 0);
+  const hoyISO = new Date().toISOString().slice(0, 10);
+  const sessionsToday = sessions.filter((s) => String(s.createdAt || s.scheduledAt || "").slice(0, 10) === hoyISO);
+  const registros = meals.length;
+  const pendientes = pending.length;
 
   async function login() {
     setLoading(true);
@@ -255,6 +278,7 @@ export default function App() {
       setPayments(pay);
       setPending(pend);
       setError("");
+      setSyncAt(new Date());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -459,19 +483,39 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.header}>
         <View style={styles.headerRow}>
+          <View style={[styles.avatar, { backgroundColor: C.tealVivid }]}>
+            <Text style={styles.avatarTxt}>{String(user.name || "P").slice(0, 1).toUpperCase()}</Text>
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.hello}>Hola, {user.name.split(" ")[0]}</Text>
-            <Text style={styles.sub}>{spec} · {clients.length} clientes · S/ {Number(payments.total || 0).toFixed(2)} este mes</Text>
+            <View style={styles.subRow}>
+              <Pill color={C.teal} soft={C.tealSoft}>{spec}</Pill>
+              <Pill color={C.muted} soft={C.surface2}>{clients.length} clientes</Pill>
+              <Text style={styles.sub}>{syncAt ? timeAgo(syncAt, now) : "sincronizando…"}</Text>
+            </View>
           </View>
           <Pressable style={styles.logoutBtn} onPress={logout}>
             <Text style={styles.logoutTxt}>Salir</Text>
           </Pressable>
         </View>
+        <View style={styles.kpiRow}>
+          <KpiCard index={0} icon="👥" value={clients.length} label="Clientes" color={C.tealVivid} />
+          <KpiCard index={1} icon="💰" value={monthTotal} label="Ingresos del mes" color={C.amberVivid} format={(n) => `S/ ${Math.round(n)}`} />
+        </View>
+        <View style={styles.kpiRow}>
+          <KpiCard index={2} icon="📞" value={sessionsToday.length} label="Sesiones de hoy" color={C.brandVivid} />
+          <KpiCard index={3} icon="📝" value={registros} label="Registros recibidos" color={C.coralVivid} />
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
           {TABS.map(([t, label]) => (
-            <Pressable key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => { setTab(t); setSelClient(null); }}>
+            <Press
+              key={t}
+              style={[styles.tab, tab === t && styles.tabOn]}
+              scale={0.94}
+              onPress={() => { setTab(t); setSelClient(null); }}
+            >
               <Text style={[styles.tabTxt, tab === t && styles.tabTxtOn]}>{label}</Text>
-            </Pressable>
+            </Press>
           ))}
         </ScrollView>
       </View>
@@ -484,16 +528,36 @@ export default function App() {
 
         {tab === "clientes" && !selClient && (
           <View>
-            {clients.length === 0 && <Text style={styles.muted}>Sin clientes todavía.</Text>}
-            {clients.map((c) => (
-              <Pressable key={c.id} style={styles.row} onPress={() => setSelClient(c)}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>{c.name}</Text>
-                  <Text style={styles.rowS}>{c.email} · {(mealsByUser[c.id] || []).length} registros</Text>
-                </View>
-                <Text style={styles.more}>›</Text>
-              </Pressable>
-            ))}
+            <SectionHead title="Tus clientes" count={clients.length} />
+            {clients.length === 0 && (
+              <EmptyState
+                icon="👥"
+                title="Sin clientes todavía"
+                text="Cuando un usuario contrate tu servicio aparecerá aquí con todo su registro de comidas."
+              />
+            )}
+            {clients.map((c, i) => {
+              const regs = (mealsByUser[c.id] || []).length;
+              const kcal = (mealsByUser[c.id] || []).reduce((a, m) => a + (Number(m.calories) || 0), 0);
+              return (
+                <FadeUp key={c.id} index={i}>
+                  <Press style={pro.card} onPress={() => setSelClient(c)}>
+                    <View style={pro.avatar}>
+                      <Text style={pro.avatarTxt}>{String(c.name || "?").slice(0, 1).toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={pro.headRow}>
+                        <Text style={styles.rowT} numberOfLines={1}>{c.name}</Text>
+                        {c.membership === "PREMIUM" ? <Pill color={C.amber} soft={C.amberSoft}>PREMIUM</Pill> : null}
+                      </View>
+                      <Text style={styles.rowS}>{c.email}</Text>
+                      <Text style={styles.rowS}>{regs} registros · {kcal} kcal acumuladas</Text>
+                    </View>
+                    <Text style={pro.more}>›</Text>
+                  </Press>
+                </FadeUp>
+              );
+            })}
           </View>
         )}
 
@@ -629,18 +693,30 @@ export default function App() {
 
         {tab === "ingresos" && (
           <View>
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Ingresos {monthNow}</Text>
-              <Text style={styles.big}>S/ {Number(payments.total || 0).toFixed(2)}</Text>
-              <Text style={styles.rowS}>{payments.count || 0} cobros registrados</Text>
-            </View>
-            {(payments.payments || []).map((p) => (
-              <View key={p.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>S/ {Number(p.amount).toFixed(2)} · {p.concept}</Text>
-                  <Text style={styles.rowS}>{p.user ? p.user.name : ""} · {p.month}</Text>
-                </View>
+            <SectionHead title="Ingresos" right={<Pill color={C.amber} soft={C.amberSoft}>{monthNow}</Pill>} />
+            <FadeUp index={0} style={styles.card}>
+              <Text style={styles.cardT}>Total {monthNow}</Text>
+              <Text style={pro.big}>S/ {Number(payments.total || 0).toFixed(2)}</Text>
+              <Text style={styles.rowS}>{payments.count || 0} cobros registrados · 85% para ti</Text>
+              <View style={{ marginTop: 12 }}>
+                <Sparkbars
+                  data={(payments.payments || []).slice(-7).map((p) => Number(p.amount) || 0)}
+                  height={40}
+                  color={C.amberVivid}
+                />
+                <Text style={[styles.rowS, { marginTop: 6 }]}>Últimos {(payments.payments || []).slice(-7).length} cobros</Text>
               </View>
+            </FadeUp>
+            {(payments.payments || []).map((p, i) => (
+              <FadeUp key={p.id} index={i} delay={i * 40}>
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowT}>S/ {Number(p.amount).toFixed(2)} · {p.concept}</Text>
+                    <Text style={styles.rowS}>{p.user ? p.user.name : ""} · {p.month}</Text>
+                  </View>
+                  <Pill color={C.brand} soft={C.brandSoft}>85%</Pill>
+                </View>
+              </FadeUp>
             ))}
           </View>
         )}
@@ -697,6 +773,10 @@ const styles = StyleSheet.create({
   linkBtn: { marginTop: 10 },
   link: { color: "#15803d", fontWeight: "800", textAlign: "center" },
   headerRow: { flexDirection: "row", alignItems: "flex-start" },
+  avatar: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginRight: 10 },
+  avatarTxt: { color: "#04150a", fontWeight: "900", fontSize: 18 },
+  subRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 5, flexWrap: "wrap" },
+  kpiRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   logoutBtn: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#dbe1d8", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6, marginLeft: 10 },
   logoutTxt: { color: "#45564c", fontWeight: "800", fontSize: 12 },
   header: { paddingTop: 56, paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#dbe1d8" },
@@ -727,4 +807,23 @@ const styles = StyleSheet.create({
   prow: { marginBottom: 10 },
   barBg: { height: 8, borderRadius: 4, backgroundColor: "#e8efe0", marginTop: 6, overflow: "hidden" },
   barFg: { height: "100%", backgroundColor: GREEN, borderRadius: 4 },
+});
+
+// --- Estilos del rediseño (profesional) ---
+const pro = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#dbe1d8",
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 10,
+  },
+  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#ccfbf1", alignItems: "center", justifyContent: "center", marginRight: 10 },
+  avatarTxt: { fontWeight: "900", color: "#0f766e", fontSize: 16 },
+  headRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
+  more: { fontSize: 22, color: "#9fb3a7", fontWeight: "800", marginLeft: 4 },
+  big: { fontSize: 30, fontWeight: "900", color: "#b45309", letterSpacing: -0.6, marginTop: 4 },
 });

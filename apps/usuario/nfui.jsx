@@ -238,28 +238,35 @@ export function Dial({ value = 0, max = 100, size = 116, segments = 26, thicknes
 }
 
 // ---------------------------------------------------------------- CountUp ---
-/** Número que sube hasta su valor. easing 1-(1-p)^3, como en 7-moments. */
+/** Número que sube hasta su valor. easing 1-(1-p)^3, como en 7-moments.
+ *  Usa requestAnimationFrame en vez de Animated: así el valor final queda
+ *  garantizado aunque el dato llegue después de montar el componente. */
 export function CountUp({ to = 0, duration = D.count, format = (n) => String(Math.round(n)), style, suffix = "" }) {
-  const v = useRef(new Animated.Value(0)).current;
-  const [txt, setTxt] = useState(() => format(0));
-  // El formato se guarda en un ref: si no, el efecto se quedaría con la
-  // versión obsoleta del cierre y no reflejaría los datos nuevos.
+  const [txt, setTxt] = useState(() => format(Number(to) || 0));
+  const fromRef = useRef(Number(to) || 0);
   const fmt = useRef(format);
   fmt.current = format;
   useEffect(() => {
-    const id = v.addListener(({ value }) => setTxt(fmt.current(value)));
-    const a = Animated.timing(v, {
-      toValue: to,
-      duration: d(duration),
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    });
-    a.start();
-    return () => {
-      v.removeListener(id);
-      a.stop();
+    const from = fromRef.current;
+    const end = Number(to) || 0;
+    const delta = end - from;
+    const dur = REDUCE ? 0 : Number(duration) || 0;
+    let raf = 0;
+    let t0 = 0;
+    const step = (ts) => {
+      if (!t0) t0 = ts;
+      const p = dur <= 0 ? 1 : Math.min(1, (ts - t0) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setTxt(fmt.current(from + delta * eased));
+      if (p < 1) raf = requestAnimationFrame(step);
+      else fromRef.current = end;
     };
-  }, [to, v]);
+    raf = requestAnimationFrame(step);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      fromRef.current = end;
+    };
+  }, [to, duration]);
   return <Text style={style}>{`${txt}${suffix}`}</Text>;
 }
 
@@ -425,7 +432,7 @@ export function KpiCard({ icon, value = 0, max, unit = "", delta, label, index =
         )}
       </View>
       <View style={{ marginTop: 10 }}>
-        <CountUp to={value} format={format || ((n) => String(Math.round(n)))} style={[kpi.val, { color: col }]} suffix={unit} />
+        <Text style={[kpi.val, { color: col }]}>{`${(format ? format(Number(value) || 0) : String(Math.round(Number(value) || 0)))}${unit}`}</Text>
         <Text style={kpi.label}>{label}</Text>
         {max != null && <ProgressBar value={value} max={max} height={6} color={col} delay={index * D.stagger} style={{ marginTop: 8 }} />}
       </View>
