@@ -549,6 +549,22 @@ app.get("/api/admin/users", async (req, res) => {
   }
 });
 
+// GET clientes (solo usuarios con rol USUARIO) - ORIENTADOR/VENDEDOR/SUPER_ADMIN.
+// Endpoint dedicado para las apps móviles que gestionan clientes: no expone
+// la tabla completa de usuarios (ni otros roles ni datos sensibles).
+app.get("/api/clients", need("SUPER_ADMIN", "ORIENTADOR", "VENDEDOR"), async (req, res) => {
+  try {
+    const clients = await prisma.user.findMany({
+      where: { role: "USUARIO" },
+      select: { id: true, email: true, name: true, role: true, membership: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+    res.json(clients);
+  } catch (error) {
+    res.status(500).json({ error: "No se pudieron obtener los clientes" });
+  }
+});
+
 // GET all meals stats - Solo SUPER_ADMIN
 app.get("/api/admin/stats/meals", need("SUPER_ADMIN", "ORIENTADOR"), async (req, res) => {
   try {

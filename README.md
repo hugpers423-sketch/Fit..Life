@@ -50,6 +50,8 @@ GET  /api/auth/me              → Usuario dueño del token
 POST /api/auth/forgot-password → Solicitar reset. Sin SMTP devuelve { ok, resetToken, expiresInMinutes } para que la app complete el flujo; con SMTP enviar por correo y devolver solo { ok: true }
 POST /api/auth/reset-password  → Confirmar reset con token (revoca sesiones)
 POST /api/users                → Crear usuario (SOLO SUPER_ADMIN, con password opcional)
+GET  /api/clients              → Listar clientes (solo rol USUARIO, campos limitados). Acceso: SUPER_ADMIN, ORIENTADOR, VENDEDOR
+GET  /api/admin/users          → Listar TODOS los usuarios (SOLO SUPER_ADMIN)
 ```
 
 - **Hash de contraseñas**: `crypto.scryptSync` nativo (cero dependencias), formato `scrypt$N$r$p$salt$hash`.

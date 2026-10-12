@@ -179,7 +179,7 @@ export default function App() {
     setRefreshing(true);
     try {
       const [u, g, r, p, s, pr] = await Promise.all([
-        api(`/api/admin/users?role=SUPER_ADMIN`),
+        api(`/api/clients`),
         api(`/api/gyms?ownerId=${id}`),
         api(`/api/restaurants?ownerId=${id}`),
         api(`/api/posts?authorId=${id}`),
