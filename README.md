@@ -71,6 +71,7 @@ GET  /api/admin/users          → Listar TODOS los usuarios (SOLO SUPER_ADMIN)
 - **Refresh automático**: si una llamada autenticada responde `401`, el cliente llama a `/api/auth/refresh` con el refresh token, renueva el access token, lo vuelve a persistir y reintenta la petición **una vez**. Si el refresh también falla, se limpia la sesión y se vuelve al login.
 - Al iniciar sesión/registrarse se persiste la sesión (`persistSession`) y el botón **Salir** la limpia (`clearSession`) además de revocar en el servidor.
 - Las apps restauradoras validan el token guardado contra `/api/auth/me` antes de mostrar el contenido (en `mobile` el arranque espera a la restauración).
+- **Solo un `401` real cierra la sesión**: el error de cada llamada lleva su `status` HTTP y el cliente cierra sesión únicamente ante `401`. Un `500` (p. ej. `"No se pudo validar la sesión"` por la BD) o un fallo de red **no** desloguean: se muestra el error y se conserva la sesión.
 - Si se agrega una app nueva: declarar `@react-native-async-storage/async-storage` y ejecutar `pnpm install` para habilitar la persistencia en nativo.
 
 ### Credenciales demo

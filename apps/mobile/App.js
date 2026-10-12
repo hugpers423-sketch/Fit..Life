@@ -106,7 +106,9 @@ async function af(path, init) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `API ${res.status}`);
+    const err = new Error(body.error || `API ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -235,12 +237,15 @@ export default function App() {
       setWorkouts(w.ok !== false ? w : []);
       setError("");
     } catch (e) {
-      setError(e.message === "Sesión inválida" || String(e.message).includes("Sesión") || String(e.message).includes("token")
-        ? "Sesión vencida: ingresa de nuevo."
-        : `Sin conexión con la API (${API_URL}). Inicia: node src/index.js en apps/api`);
-      if (String(e.message).includes("401") || String(e.message).includes("Sesión")) {
+      // Solo un 401 real cierra la sesión; un 500/red no debe desloguear.
+      if (e && e.status === 401) {
+        setError("Sesión vencida: ingresa de nuevo.");
         API_TOKEN = "";
         setToken("");
+      } else if (e && e.status) {
+        setError(`La API respondió ${e.status}: ${e.message}`);
+      } else {
+        setError(`Sin conexión con la API (${API_URL}). Inicia: node src/index.js en apps/api`);
       }
     } finally {
       setLoading(false);
