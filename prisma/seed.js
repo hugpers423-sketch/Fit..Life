@@ -35,19 +35,40 @@ async function main() {
     });
     console.log(`✅ Usuario ${role} creado: ${user.email}`);
 
-    // 2. Crear perfil para cada usuario
+    // 2. Crear perfil para cada usuario (con objetivos nutricionales de demo,
+    //    así las apps pueden mostrar metas, IMC y TMB reales desde el día 1).
+    const heightCm = role === "SUPER_ADMIN" ? 180 : (role === "VENDEDOR" ? 175 : 165);
+    const weightKg = role === "SUPER_ADMIN" ? 80 : (role === "VENDEDOR" ? 75 : 60);
+    const edad = 36;
+    const gender = role === "SUPER_ADMIN" ? "Masculino" : "Femenino";
+    const bmi = Number((weightKg / Math.pow(heightCm / 100, 2)).toFixed(1));
+    const bmr = Math.round(10 * weightKg + 6.25 * heightCm - 5 * edad + (gender === "Masculino" ? 5 : -161));
+    const tdee = Math.round(bmr * 1.55); // Moderado
+
+    const profileData = {
+      birthDate: new Date("1990-01-15"),
+      gender,
+      heightCm,
+      weightKg,
+      activityLevel: "Moderado",
+      goal: "Perder grasa",
+      targetWeightKg: weightKg - 3,
+      bmi,
+      bmr,
+      tdee,
+      targetCalories: Math.round((tdee - 300) / 10) * 10,
+      targetProtein: 2 * weightKg,
+      targetCarbs: Math.round((tdee * 0.45) / 4 / 10) * 10,
+      targetFat: Math.round((tdee * 0.3) / 9 / 10) * 10,
+      wakeTime: "06:00",
+      workStart: "08:00",
+      workEnd: "18:00",
+    };
+
     await prisma.profile.upsert({
       where: { userId: user.id },
-      update: {},
-      create: {
-        userId: user.id,
-        birthDate: new Date("1990-01-15"),
-        gender: role === "SUPER_ADMIN" ? "Masculino" : "Femenino",
-        heightCm: role === "SUPER_ADMIN" ? 180 : (role === "VENDEDOR" ? 175 : 165),
-        weightKg: role === "SUPER_ADMIN" ? 80 : (role === "VENDEDOR" ? 75 : 60),
-        activityLevel: "Moderado",
-        goal: "Mantener peso",
-      },
+      update: profileData,
+      create: { userId: user.id, ...profileData },
     });
     console.log(`✅ Perfil creado para ${role}`);
   }

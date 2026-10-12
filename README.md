@@ -74,6 +74,29 @@ GET  /api/admin/users          → Listar TODOS los usuarios (SOLO SUPER_ADMIN)
 - **Solo un `401` real cierra la sesión**: el error de cada llamada lleva su `status` HTTP y el cliente cierra sesión únicamente ante `401`. Un `500` (p. ej. `"No se pudo validar la sesión"` por la BD) o un fallo de red **no** desloguean: se muestra el error y se conserva la sesión.
 - Si se agrega una app nueva: declarar `@react-native-async-storage/async-storage` y ejecutar `pnpm install` para habilitar la persistencia en nativo.
 
+### Diseño y movimiento en apps móviles (Sprint 4)
+
+Portado de las maquetas (`disenos-desktop`: design system + motion system) a React Native,
+**sin dependencias nuevas** (ni SVG): todo con `Animated`.
+
+- **`apps/usuario/nfui.jsx`** es la biblioteca de UI y movimiento. Se replica en cada app
+  (`apps/<app>/nfui.jsx`) y se consume con `import { … } from "./nfui"`.
+- **Tokens de movimiento** (fieles a `6-motion-system`): curvas `ease-out
+  cubic-bezier(.16,1,.3,1)` para entradas, `bounce` para botones y logros, `elastic` para
+  progreso; duraciones 180 / 280 / 450 / 900 / 2400 ms.
+- **Reglas respetadas**: como máximo una animación continua por pantalla, nada por encima de
+  900 ms salvo logros, y `useReduceMotion()` apaga las animaciones si el sistema lo pide.
+- **Componentes**: `FadeUp` (entrada escalonada), `Press` (escala al pulsar), `ProgressBar`,
+  `Dial` (aro de segmentos que sustituye al anillo SVG), `CountUp` (contadores de 1400 ms),
+  `KpiCard`, `SectionHead`, `EmptyState` (estados vacíos accionables), `StatRow`,
+  `Sparkbars`, `Pill`, `Shimmer`/`Skeleton`, `Confetti` y `Pulse` (indicador "en vivo").
+- **App Usuario rediseñada**: pestaña **Hoy** con calorías del día (dial + macros), racha,
+  semana en barras, próxima comida y datos personales; menú semanal con precios, proteína y
+  estado "registrado"; comidas agrupadas por día con iconos Casa/Local; rutina con mejor
+  horario y gimnasios abiertos; membresía con comparativa de beneficios.
+- **Seed enriquecido** (`prisma/seed.js` + `prisma/seed-recipes.js`): perfiles con IMC, TMB,
+  TDEE y objetivos reales de macros, más el menú semanal de 7 recetas con precios.
+
 ### Credenciales demo
 
 ```
