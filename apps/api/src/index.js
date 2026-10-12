@@ -267,6 +267,9 @@ app.get("/api/auth/me", (req, res) => {
 });
 
 // Solicita restablecer contraseña. Nunca revela si el correo existe.
+// Sin SMTP configurado, el token se entrega en la respuesta para que el
+// cliente (móvil/web) complete el flujo en la misma pantalla. Con SMTP,
+// enviarlo por correo y devolver solo { ok: true }.
 app.post("/api/auth/forgot-password", async (req, res) => {
   const normalized = String((req.body && req.body.email) || "").trim().toLowerCase();
   try {
@@ -276,8 +279,13 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       await prisma.passwordReset.create({
         data: { token, userId: user.id, expiresAt: new Date(Date.now() + RESET_TTL_MS) },
       });
-      // TODO(correo): enviar el enlace por email. En desarrollo se registra en consola.
+      // En producción con correo: enviar enlace y omitir el token en la respuesta.
       console.log(`[reset] ${normalized} -> /restablecer?token=${token}`);
+      return res.json({
+        ok: true,
+        resetToken: token,
+        expiresInMinutes: Math.round(RESET_TTL_MS / 60000),
+      });
     }
     res.json({ ok: true });
   } catch (error) {

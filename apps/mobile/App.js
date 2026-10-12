@@ -62,10 +62,15 @@ export default function App() {
   const [email, setEmail] = useState("super_admin@nutriflow.com");
   const [pass, setPass] = useState("password123");
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("login"); // login | forgot | reset
+  const [newPass, setNewPass] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [ok, setOk] = useState("");
 
   async function login() {
     setBusy(true);
     setError("");
+    setOk("");
     try {
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
@@ -84,6 +89,67 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function forgot() {
+    setBusy(true);
+    setError("");
+    setOk("");
+    try {
+      const res = await fetch(`${API_URL}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `API ${res.status}`);
+      if (data.resetToken) {
+        setResetToken(data.resetToken);
+        setMode("reset");
+        setOk("Código generado. Ingresa tu nueva contraseña.");
+      } else {
+        setOk("Si el correo existe, se enviaron las instrucciones.");
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetPass() {
+    setBusy(true);
+    setError("");
+    setOk("");
+    try {
+      const res = await fetch(`${API_URL}/api/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: resetToken.trim(), password: newPass }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `API ${res.status}`);
+      setMode("login");
+      setNewPass("");
+      setPass("");
+      setOk("Contraseña actualizada. Ingresa con tu nueva clave.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function salir() {
+    try {
+      await af("/api/auth/logout", { method: "POST" });
+    } catch (_) {}
+    API_TOKEN = "";
+    API_ROLE = "";
+    setToken("");
+    setMode("login");
+    setOk("");
+    setError("");
   }
 
   const load = useCallback(async () => {
@@ -162,25 +228,70 @@ export default function App() {
           <View style={styles.brandMark}>
             <Text style={styles.brandMarkTxt}>N</Text>
           </View>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.brandName}>NutriFlow</Text>
             <Text style={styles.brandBadge}>ADMIN · APP</Text>
           </View>
+          {token ? (
+            <TouchableOpacity style={styles.logoutBtn} onPress={salir}>
+              <Text style={styles.logoutTxt}>Salir</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
         <Text style={styles.hTitle}>Dashboard General</Text>
         <Text style={styles.hSub}>Lo mismo que el Admin General web</Text>
       </View>
 
       {!token ? (
-        <View style={styles.body}>
-          <Text style={styles.section}>Ingresar</Text>
-          <TextInput style={styles.input} placeholder="correo@ejemplo.com" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
-          <TextInput style={styles.input} placeholder="Contraseña" placeholderTextColor={C.muted} secureTextEntry value={pass} onChangeText={setPass} />
-          {error !== "" && <Text style={styles.alertTxt}>{error}</Text>}
-          <TouchableOpacity style={styles.loginBtn} onPress={login} disabled={busy}>
-            <Text style={styles.loginTxt}>{busy ? "Ingresando…" : "Ingresar como Admin"}</Text>
-          </TouchableOpacity>
-        </View>
+        <ScrollView style={styles.body} contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+          {mode === "login" && (
+            <>
+              <Text style={styles.section}>Ingresar</Text>
+              <TextInput style={styles.input} placeholder="correo@ejemplo.com" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+              <TextInput style={styles.input} placeholder="Contraseña" placeholderTextColor={C.muted} secureTextEntry value={pass} onChangeText={setPass} />
+              {error !== "" && <Text style={styles.alertTxt}>{error}</Text>}
+              {ok !== "" && <Text style={styles.okTxt}>{ok}</Text>}
+              <TouchableOpacity style={styles.loginBtn} onPress={login} disabled={busy}>
+                <Text style={styles.loginTxt}>{busy ? "Ingresando…" : "Ingresar como Admin"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setMode("forgot"); }}>
+                <Text style={styles.link}>¿Olvidaste tu contraseña?</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {mode === "forgot" && (
+            <>
+              <Text style={styles.section}>Recuperar contraseña</Text>
+              <Text style={styles.muted}>Te generamos un código para restablecerla. Escríbelo y define tu nueva clave.</Text>
+              <TextInput style={styles.input} placeholder="correo@ejemplo.com" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+              {error !== "" && <Text style={styles.alertTxt}>{error}</Text>}
+              {ok !== "" && <Text style={styles.okTxt}>{ok}</Text>}
+              <TouchableOpacity style={styles.loginBtn} onPress={forgot} disabled={busy}>
+                <Text style={styles.loginTxt}>{busy ? "Enviando…" : "Enviar código"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setMode("login"); }}>
+                <Text style={styles.link}>‹ Volver a ingresar</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {mode === "reset" && (
+            <>
+              <Text style={styles.section}>Nueva contraseña</Text>
+              {ok !== "" && <Text style={styles.okTxt}>{ok}</Text>}
+              <TextInput style={styles.input} placeholder="Código de recuperación" placeholderTextColor={C.muted} autoCapitalize="none" value={resetToken} onChangeText={setResetToken} />
+              <TextInput style={styles.input} placeholder="Nueva contraseña (mín. 8)" placeholderTextColor={C.muted} secureTextEntry value={newPass} onChangeText={setNewPass} />
+              {error !== "" && <Text style={styles.alertTxt}>{error}</Text>}
+              <TouchableOpacity style={styles.loginBtn} onPress={resetPass} disabled={busy}>
+                <Text style={styles.loginTxt}>{busy ? "Guardando…" : "Guardar nueva contraseña"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setMode("login"); }}>
+                <Text style={styles.link}>‹ Volver a ingresar</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
       ) : loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#22c55e" />
@@ -326,6 +437,11 @@ const styles = StyleSheet.create({
   role: { fontSize: 10, fontWeight: "800" },
   liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: C.brandVivid },
   muted: { color: C.muted, fontSize: 13 },
+  okTxt: { color: C.brand, fontSize: 13, fontWeight: "700", marginBottom: 10 },
+  linkBtn: { marginTop: 12, alignItems: "center" },
+  link: { color: C.brand, fontWeight: "800" },
+  logoutBtn: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6 },
+  logoutTxt: { color: C.muted, fontWeight: "800", fontSize: 12 },
   input: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12, color: C.text, marginBottom: 10 },
   loginBtn: { backgroundColor: C.brandVivid, borderRadius: 10, padding: 12, alignItems: "center", marginTop: 4 },
   loginTxt: { color: C.onBrand, fontWeight: "800" },

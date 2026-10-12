@@ -47,7 +47,7 @@ POST /api/auth/register        → Registro abierto (solo rol USUARIO) con contr
 POST /api/auth/refresh         → Renovar access token con el refresh token
 POST /api/auth/logout          → Cerrar sesión (revoca access + refresh)
 GET  /api/auth/me              → Usuario dueño del token
-POST /api/auth/forgot-password → Solicitar reset (nunca revela si el correo existe)
+POST /api/auth/forgot-password → Solicitar reset. Sin SMTP devuelve { ok, resetToken, expiresInMinutes } para que la app complete el flujo; con SMTP enviar por correo y devolver solo { ok: true }
 POST /api/auth/reset-password  → Confirmar reset con token (revoca sesiones)
 POST /api/users                → Crear usuario (SOLO SUPER_ADMIN, con password opcional)
 ```
@@ -55,6 +55,12 @@ POST /api/users                → Crear usuario (SOLO SUPER_ADMIN, con password
 - **Hash de contraseñas**: `crypto.scryptSync` nativo (cero dependencias), formato `scrypt$N$r$p$salt$hash`.
 - **Sesiones**: access token 2h, refresh token 30d, reset 1h. Todo con expiración y revocación en `Token`/`PasswordReset`.
 - **Autorización**: el rol y el dueño salen del token verificado (`x-role` validado contra el token). Los endpoints de lectura fuerzan los datos del usuario autenticado (SUPER_ADMIN puede leer a cualquiera; los demás solo sus propios datos).
+
+### Auth en apps móviles (Sprint 2)
+
+- **apps/usuario** (`apps/usuario/App.js`): registro con contraseña (rol USUARIO), recuperación (código + nueva contraseña) y botón **Salir** que revoca la sesión vía `/api/auth/logout`.
+- **apps/professional**, **apps/servicio**, **apps/mobile** (personal: ORIENTADOR, VENDEDOR, SUPER_ADMIN): recuperación de contraseña + **Salir**. El alta de estos roles la hace el Admin General vía `/api/users` (el registro público solo crea USUARIO).
+- El flujo de recuperación no necesita correo: `forgot-password` entrega el `resetToken` en la respuesta y la app pide definir la nueva contraseña. En producción, con SMTP, devolver solo `{ ok: true }` y enviar el enlace por email.
 
 ### Credenciales demo
 

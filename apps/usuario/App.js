@@ -75,6 +75,10 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [email, setEmail] = useState("usuario@nutriflow.com");
   const [pass, setPass] = useState("password123");
+  const [authMode, setAuthMode] = useState("login"); // login | register | forgot | reset
+  const [regName, setRegName] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [tab, setTab] = useState("menu");
   const [recipes, setRecipes] = useState([]);
   const [rests, setRests] = useState([]);
@@ -111,6 +115,80 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function register() {
+    setLoading(true);
+    setError("");
+    setOk("");
+    try {
+      const data = await api("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim(), name: regName.trim(), password: pass }),
+      });
+      setUser(data.user);
+      API_TOKEN = data.token || "";
+      API_ROLE = (data.user && data.user.role) || "";
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function forgot() {
+    setLoading(true);
+    setError("");
+    setOk("");
+    try {
+      const data = await api("/api/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      if (data.resetToken) {
+        setResetToken(data.resetToken);
+        setAuthMode("reset");
+        setOk("Código generado. Ingresa tu nueva contraseña.");
+      } else {
+        setOk("Si el correo existe, se enviaron las instrucciones.");
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function resetPass() {
+    setLoading(true);
+    setError("");
+    setOk("");
+    try {
+      await api("/api/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ token: resetToken.trim(), password: newPass }),
+      });
+      setAuthMode("login");
+      setNewPass("");
+      setPass("");
+      setOk("Contraseña actualizada. Ingresa con tu nueva clave.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function logout() {
+    try {
+      await api("/api/auth/logout", { method: "POST" });
+    } catch (_) {}
+    API_TOKEN = "";
+    API_ROLE = "";
+    setUser(null);
+    setAuthMode("login");
+    setOk("");
+    setError("");
   }
 
   async function load(uid) {
@@ -256,18 +334,78 @@ export default function App() {
     return (
       <View style={styles.root}>
         <StatusBar style="dark" />
-        <View style={styles.loginCard}>
+        <ScrollView contentContainerStyle={styles.loginCard} keyboardShouldPersistTaps="handled">
           <Text style={styles.brand}>Nutri<Text style={{ color: GREEN }}>Flow</Text></Text>
           <Text style={styles.appTag}>APP USUARIO</Text>
-          <Text style={styles.title}>Tu menú semanal te espera</Text>
-          <Field label="Correo" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-          <Field label="Contraseña" value={pass} onChangeText={setPass} secureTextEntry />
-          {error !== "" && <Text style={styles.err}>{error}</Text>}
-          <Pressable style={styles.btn} onPress={login} disabled={loading}>
-            <Text style={styles.btnTxt}>{loading ? "Ingresando…" : "Ingresar"}</Text>
-          </Pressable>
-          <Text style={styles.hint}>Tu admin monitorea tu progreso con tus registros.</Text>
-        </View>
+
+          {authMode === "login" && (
+            <>
+              <Text style={styles.title}>Tu menú semanal te espera</Text>
+              <Field label="Correo" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+              <Field label="Contraseña" value={pass} onChangeText={setPass} secureTextEntry />
+              {error !== "" && <Text style={styles.err}>{error}</Text>}
+              {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
+              <Pressable style={styles.btn} onPress={login} disabled={loading}>
+                <Text style={styles.btnTxt}>{loading ? "Ingresando…" : "Ingresar"}</Text>
+              </Pressable>
+              <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setAuthMode("forgot"); }}>
+                <Text style={styles.link}>¿Olvidaste tu contraseña?</Text>
+              </Pressable>
+              <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setAuthMode("register"); }}>
+                <Text style={styles.link}>¿No tienes cuenta? Regístrate</Text>
+              </Pressable>
+              <Text style={styles.hint}>Tu admin monitorea tu progreso con tus registros.</Text>
+            </>
+          )}
+
+          {authMode === "register" && (
+            <>
+              <Text style={styles.title}>Crea tu cuenta</Text>
+              <Field label="Nombre" value={regName} onChangeText={setRegName} />
+              <Field label="Correo" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+              <Field label="Contraseña (mín. 8)" value={pass} onChangeText={setPass} secureTextEntry />
+              {error !== "" && <Text style={styles.err}>{error}</Text>}
+              <Pressable style={styles.btn} onPress={register} disabled={loading}>
+                <Text style={styles.btnTxt}>{loading ? "Creando…" : "Crear cuenta y entrar"}</Text>
+              </Pressable>
+              <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setAuthMode("login"); }}>
+                <Text style={styles.link}>‹ Volver a ingresar</Text>
+              </Pressable>
+            </>
+          )}
+
+          {authMode === "forgot" && (
+            <>
+              <Text style={styles.title}>Recuperar contraseña</Text>
+              <Text style={styles.muted}>Te generamos un código para restablecerla. Escríbelo y define tu nueva clave.</Text>
+              <Field label="Correo" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+              {error !== "" && <Text style={styles.err}>{error}</Text>}
+              {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
+              <Pressable style={styles.btn} onPress={forgot} disabled={loading}>
+                <Text style={styles.btnTxt}>{loading ? "Enviando…" : "Enviar código"}</Text>
+              </Pressable>
+              <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setAuthMode("login"); }}>
+                <Text style={styles.link}>‹ Volver a ingresar</Text>
+              </Pressable>
+            </>
+          )}
+
+          {authMode === "reset" && (
+            <>
+              <Text style={styles.title}>Nueva contraseña</Text>
+              {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
+              <Field label="Código de recuperación" value={resetToken} onChangeText={setResetToken} autoCapitalize="none" />
+              <Field label="Nueva contraseña (mín. 8)" value={newPass} onChangeText={setNewPass} secureTextEntry />
+              {error !== "" && <Text style={styles.err}>{error}</Text>}
+              <Pressable style={styles.btn} onPress={resetPass} disabled={loading}>
+                <Text style={styles.btnTxt}>{loading ? "Guardando…" : "Guardar nueva contraseña"}</Text>
+              </Pressable>
+              <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setAuthMode("login"); }}>
+                <Text style={styles.link}>‹ Volver a ingresar</Text>
+              </Pressable>
+            </>
+          )}
+        </ScrollView>
       </View>
     );
   }
@@ -281,8 +419,15 @@ export default function App() {
     <View style={styles.root}>
       <StatusBar style="dark" />
       <View style={styles.header}>
-        <Text style={styles.hello}>Hola, {user.name.split(" ")[0]} {isPremium ? "★" : ""}</Text>
-        <Text style={styles.sub}>Membresía {user.membership || "BASICA"} · Admin monitorea tu avance</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.hello}>Hola, {user.name.split(" ")[0]} {isPremium ? "★" : ""}</Text>
+            <Text style={styles.sub}>Membresía {user.membership || "BASICA"} · Admin monitorea tu avance</Text>
+          </View>
+          <Pressable style={styles.logoutBtn} onPress={logout}>
+            <Text style={styles.logoutTxt}>Salir</Text>
+          </Pressable>
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
           {[["menu", "Menú"], ["rutina", "Rutina"], ["comidas", "Mis comidas"], ["plan", "Membresía"]].map(([t, label]) => (
             <Pressable key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => { setTab(t); setSelRecipe(null); setMode(null); }}>
@@ -481,7 +626,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fbfaf7" },
-  loginCard: { flex: 1, justifyContent: "center", padding: 24 },
+  loginCard: { flexGrow: 1, justifyContent: "center", padding: 24 },
   brand: { fontSize: 30, fontWeight: "900", color: "#12211a" },
   appTag: { fontSize: 11, fontWeight: "800", letterSpacing: 1.5, color: GREEN, marginTop: 4 },
   title: { fontSize: 22, fontWeight: "800", color: "#12211a", marginTop: 12, marginBottom: 16 },
@@ -494,6 +639,11 @@ const styles = StyleSheet.create({
   ok: { color: "#15803d", fontWeight: "700", marginBottom: 8 },
   muted: { color: "#5f7167", fontSize: 13 },
   hint: { color: "#5f7167", fontSize: 12, marginTop: 14, textAlign: "center" },
+  linkBtn: { marginTop: 10 },
+  link: { color: "#15803d", fontWeight: "800", textAlign: "center" },
+  headerRow: { flexDirection: "row", alignItems: "flex-start" },
+  logoutBtn: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#dbe1d8", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6, marginLeft: 10 },
+  logoutTxt: { color: "#45564c", fontWeight: "800", fontSize: 12 },
   header: { paddingTop: 56, paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#dbe1d8" },
   hello: { fontSize: 22, fontWeight: "900", color: "#12211a" },
   sub: { fontSize: 12, color: "#5f7167", marginTop: 2 },
