@@ -1,5 +1,15 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
+const { hashPassword } = require("../apps/api/src/auth");
+
+// Credenciales demo (se guardan hasheadas, nunca en texto plano).
+const PASSWORDS = {
+  SUPER_ADMIN: "password123",
+  VENDEDOR: "123456",
+  USUARIO: "password123",
+  ORIENTADOR: "orientador1",
+  QUIOSK: "kiosk123",
+};
 
 async function main() {
   // 1. Crear usuarios con todos los roles
@@ -7,13 +17,20 @@ async function main() {
 
   for (const role of roles) {
     const email = `${role.toLowerCase()}@nutriflow.com`;
+    const passwordHash = hashPassword(PASSWORDS[role]);
     const user = await prisma.user.upsert({
       where: { email },
-      update: { name: `${role} NutriFlow`, role: role, specialty: role === 'ORIENTADOR' ? 'NUTRICIONISTA' : null },
+      update: {
+        name: `${role} NutriFlow`,
+        role: role,
+        specialty: role === 'ORIENTADOR' ? 'NUTRICIONISTA' : null,
+        passwordHash,
+      },
       create: {
         email,
         name: `${role} NutriFlow`,
         role: role,
+        passwordHash,
       },
     });
     console.log(`✅ Usuario ${role} creado: ${user.email}`);

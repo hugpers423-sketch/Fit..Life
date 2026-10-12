@@ -1,4 +1,5 @@
 // Cliente HTTP para la API Express local (apps/api, puerto 3001).
+// Una sola fuente de verdad: toda la plataforma habla con la API.
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -20,6 +21,10 @@ export type ApiProfile = {
   targetWeightKg: number | null;
   activityLevel: string | null;
   goal: string | null;
+  targetCalories?: number | null;
+  targetProtein?: number | null;
+  targetCarbs?: number | null;
+  targetFat?: number | null;
 };
 
 export type ApiMeal = {
@@ -47,28 +52,77 @@ export type ApiWorkout = {
   createdAt: string;
 };
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+type AuthPayload = { token: string; refreshToken: string; user: ApiUser };
+
+async function call<T>(path: string, init?: RequestInit): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...authHeaders(),
     ...((init?.headers || {}) as Record<string, string>),
   };
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  return fetch(`${API_BASE}${path}`, { ...init, headers });
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const isAuthPath = path.startsWith("/api/auth/");
+  let res = await call(path, init);
+  // Sesión expirada: renovar con el refresh token y reintentar una vez.
+  if (res.status === 401 && !isAuthPath && (await refreshApiToken())) {
+    res = await call(path, init);
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error || `API ${res.status}`);
+    const msg = (body as { error?: string }).error || `API ${res.status}`;
+    throw new Error(msg);
   }
   return res.json() as Promise<T>;
 }
 
 export async function loginApi(email: string, password: string): Promise<ApiUser> {
-  const data = await req<{ token: string; user: ApiUser }>(`/api/auth/login`, {
+  const data = await req<AuthPayload>(`/api/auth/login`, {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  storeToken(data.token);
-  storeUser(data.user);
+  persistSession(data);
   return data.user;
+}
+
+export async function registerApi(email: string, name: string, password: string): Promise<ApiUser> {
+  const data = await req<AuthPayload>(`/api/auth/register`, {
+    method: "POST",
+    body: JSON.stringify({ email, name, password }),
+  });
+  persistSession(data);
+  return data.user;
+}
+
+export async function logoutApi(): Promise<void> {
+  const token = storedToken();
+  try {
+    if (token) {
+      await call(`/api/auth/logout`, { method: "POST" });
+    }
+  } catch {
+    /* best effort: la sesión se limpia igual */
+  }
+  clearSession();
+}
+
+/** Renueva el access token con el refresh guardado. Devuelve true si pudo. */
+export async function refreshApiToken(): Promise<boolean> {
+  const refresh = storedRefresh();
+  if (!refresh) return false;
+  try {
+    const data = await req<AuthPayload>(`/api/auth/refresh`, {
+      method: "POST",
+      body: JSON.stringify({ refreshToken: refresh }),
+    });
+    persistSession(data);
+    return true;
+  } catch {
+    clearSession();
+    return false;
+  }
 }
 
 export function authHeaders(): Record<string, string> {
@@ -102,6 +156,7 @@ export const api = {
 
 const KEY = "nf_userId";
 const TKEY = "nf_token";
+const RKEY = "nf_refresh";
 const UKEY = "nf_user";
 
 export function storedToken(): string | null {
@@ -112,11 +167,11 @@ export function storedToken(): string | null {
   }
 }
 
-export function storeToken(t: string) {
+export function storedRefresh(): string | null {
   try {
-    localStorage.setItem(TKEY, t);
+    return localStorage.getItem(RKEY);
   } catch {
-    /* sin almacenamiento */
+    return null;
   }
 }
 
@@ -129,6 +184,33 @@ export function storedUser(): ApiUser | null {
   }
 }
 
+export function storedUserId(): string | null {
+  try {
+    return localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistSession(data: AuthPayload) {
+  try {
+    localStorage.setItem(TKEY, data.token);
+    localStorage.setItem(RKEY, data.refreshToken);
+    localStorage.setItem(UKEY, JSON.stringify(data.user));
+    localStorage.setItem(KEY, data.user.id);
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
+export function storeToken(t: string) {
+  try {
+    localStorage.setItem(TKEY, t);
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
 export function storeUser(u: ApiUser) {
   try {
     localStorage.setItem(UKEY, JSON.stringify(u));
@@ -138,28 +220,21 @@ export function storeUser(u: ApiUser) {
   }
 }
 
-export function clearSession() {
-  try {
-    localStorage.removeItem(TKEY);
-    localStorage.removeItem(UKEY);
-    localStorage.removeItem(KEY);
-  } catch {
-    /* sin almacenamiento */
-  }
-}
-
-export function storedUserId(): string | null {
-  try {
-    return localStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
-}
-
 export function storeUserId(id: string) {
   try {
     localStorage.setItem(KEY, id);
   } catch {
     /* sin almacenamiento: se usa el valor en memoria */
+  }
+}
+
+export function clearSession() {
+  try {
+    localStorage.removeItem(TKEY);
+    localStorage.removeItem(RKEY);
+    localStorage.removeItem(UKEY);
+    localStorage.removeItem(KEY);
+  } catch {
+    /* sin almacenamiento */
   }
 }

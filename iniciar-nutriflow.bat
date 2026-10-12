@@ -13,7 +13,7 @@ set "ROOT=E:\nuevo"
 set "FITLIFE=%ROOT%\FitLife_v3\fitlife"
 set "API=%FITLIFE%\apps\api"
 set "WEB=%FITLIFE%\apps\web"
-set "DATABASE_URL=postgresql://nutriflow:password123@127.0.0.1:5433/nutriflow"
+set "DATABASE_URL=postgresql://nutriflow:password123@127.0.0.1:5433/nutriflow?connection_limit=2"
 
 echo ============================================================
 echo    NutriFlow - Levantando la plataforma completa

@@ -2,8 +2,18 @@ const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 // Base local Docker (gallant_kare). Se respeta DATABASE_URL del entorno si existe.
-process.env.DATABASE_URL ||= "postgresql://nutriflow:password123@127.0.0.1:5432/nutriflow";
+process.env.DATABASE_URL ||= "postgresql://nutriflow:password123@127.0.0.1:5432/nutriflow?connection_limit=2";
 const { PrismaClient } = require("@prisma/client");
+const {
+  hashPassword,
+  verifyPassword,
+  newToken,
+  isEmail,
+  publicUser,
+  ACCESS_TTL_MS,
+  REFRESH_TTL_MS,
+  RESET_TTL_MS,
+} = require("./auth");
 
 const app = express();
 const prisma = new PrismaClient();
@@ -60,11 +70,14 @@ function bearerToken(req) {
 async function authMiddleware(req, res, next) {
   try {
     if (req.method === "GET" && OPEN_GET.has(req.path)) return next();
-    if (req.method === "POST" && req.path === "/api/auth/login") return next();
-    if (req.method === "POST" && req.path === "/api/users") {
-      const role = req.body && req.body.role;
-      if (!role || role === "USUARIO") return next();
-    }
+    const PUBLIC_POST = new Set([
+      "/api/auth/login",
+      "/api/auth/register",
+      "/api/auth/refresh",
+      "/api/auth/forgot-password",
+      "/api/auth/reset-password",
+    ]);
+    if (req.method === "POST" && PUBLIC_POST.has(req.path)) return next();
     const token = bearerToken(req);
     if (!token) return res.status(401).json({ error: "Falta token de sesión" });
     const row = await prisma.token.findUnique({
@@ -72,11 +85,20 @@ async function authMiddleware(req, res, next) {
       include: { user: true },
     });
     if (!row || !row.user) return res.status(401).json({ error: "Sesión inválida" });
+    if (row.revokedAt) return res.status(401).json({ error: "Sesión cerrada" });
+    if (!row.expiresAt || row.expiresAt.getTime() < Date.now()) {
+      return res.status(401).json({ error: "Sesión expirada" });
+    }
     const xr = req.headers["x-role"];
     if (xr && String(xr) !== String(row.user.role)) {
       return res.status(403).json({ error: "Rol no corresponde a la sesión" });
     }
+    // Registro de último uso (best effort, no bloquea la petición)
+    prisma.token
+      .update({ where: { id: row.id }, data: { lastUsedAt: new Date() } })
+      .catch(() => {});
     req.authUser = row.user;
+    req.authToken = row;
     return next();
   } catch (error) {
     return res.status(500).json({ error: "No se pudo validar la sesión" });
@@ -117,80 +139,209 @@ app.get("/", (req, res) => {
 // ============================================
 // AUTH & USER LOGIN
 // ============================================
+// Crea una sesión (access + refresh) con expiración y la guarda en la BD.
+async function createSession(userId) {
+  const now = Date.now();
+  return prisma.token.create({
+    data: {
+      token: newToken("nf_"),
+      refreshToken: newToken("nfr_"),
+      userId,
+      expiresAt: new Date(now + ACCESS_TTL_MS),
+      refreshExpiresAt: new Date(now + REFRESH_TTL_MS),
+      lastUsedAt: new Date(now),
+    },
+  });
+}
+
+// Inicia sesión con correo + contraseña (hash). Devuelve access + refresh.
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: "email y password son obligatorios" });
   }
-
-  // Buscar usuario por email y validar password
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    return res.status(401).json({ error: "Credenciales inválidas" });
+  const normalized = String(email).trim().toLowerCase();
+  try {
+    const user = await prisma.user.findUnique({ where: { email: normalized } });
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      return res.status(401).json({ error: "Credenciales inválidas" });
+    }
+    const session = await createSession(user.id);
+    res.json({
+      token: session.token,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      user: publicUser(user),
+    });
+  } catch (error) {
+    console.error("[login] error:", error);
+    res.status(500).json({ error: "No se pudo iniciar sesión" });
   }
+});
 
-  // Credenciales por rol
-  const credentials = {
-    "super_admin@nutriflow.com": "password123", // SUPER_ADMIN
-    "vendedor@nutriflow.com": "123456",       // VENDEDOR
-    "usuario@nutriflow.com": "password123",   // USUARIO
-    "orientador@nutriflow.com": "orientador1", // ORIENTADOR
-    "quiosk@nutriflow.com": "kiosk123",       // QUIOSK
-  };
+// Registro abierto (solo crea rol USUARIO) con contraseña.
+app.post("/api/auth/register", async (req, res) => {
+  const { email, name, password } = req.body || {};
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!isEmail(normalized) || !name || !password) {
+    return res.status(400).json({ error: "email, name y password son obligatorios" });
+  }
+  if (String(password).length < 8) {
+    return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
+  }
+  try {
+    const exists = await prisma.user.findUnique({ where: { email: normalized } });
+    if (exists) return res.status(409).json({ error: "El correo ya está registrado" });
+    const user = await prisma.user.create({
+      data: {
+        email: normalized,
+        name: String(name).trim(),
+        role: "USUARIO",
+        passwordHash: hashPassword(password),
+      },
+    });
+    const session = await createSession(user.id);
+    res.status(201).json({
+      token: session.token,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      user: publicUser(user),
+    });
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo crear la cuenta" });
+  }
+});
 
-  if (password === credentials[email]) {
-    let tok = await prisma.token.findFirst({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });
-    if (!tok) {
-      tok = await prisma.token.create({
-        data: { token: "nf_" + crypto.randomBytes(32).toString("hex"), userId: user.id },
+// Renueva el access token usando el refresh token (rota el access, no el refresh).
+app.post("/api/auth/refresh", async (req, res) => {
+  const { refreshToken } = req.body || {};
+  if (!refreshToken) {
+    return res.status(400).json({ error: "refreshToken es obligatorio" });
+  }
+  try {
+    const row = await prisma.token.findUnique({
+      where: { refreshToken: String(refreshToken) },
+      include: { user: true },
+    });
+    if (!row || row.revokedAt || !row.refreshExpiresAt || row.refreshExpiresAt.getTime() < Date.now()) {
+      return res.status(401).json({ error: "Sesión expirada, vuelve a ingresar" });
+    }
+    const updated = await prisma.token.update({
+      where: { id: row.id },
+      data: {
+        token: newToken("nf_"),
+        expiresAt: new Date(Date.now() + ACCESS_TTL_MS),
+        lastUsedAt: new Date(),
+      },
+    });
+    res.json({
+      token: updated.token,
+      refreshToken: row.refreshToken,
+      expiresAt: updated.expiresAt,
+      user: publicUser(row.user),
+    });
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo renovar la sesión" });
+  }
+});
+
+// Cierra la sesión actual (revoca el access y su refresh).
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    const token = bearerToken(req);
+    if (token) {
+      await prisma.token.updateMany({
+        where: { token },
+        data: { revokedAt: new Date() },
       });
     }
-    res.json({
-      token: tok.token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role
-      }
-    });
-  } else {
-    return res.status(401).json({ error: "Credenciales inválidas" });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo cerrar la sesión" });
+  }
+});
+
+// Devuelve el usuario dueño del token (para que el web confirme la sesión).
+app.get("/api/auth/me", (req, res) => {
+  res.json({ user: publicUser(req.authUser) });
+});
+
+// Solicita restablecer contraseña. Nunca revela si el correo existe.
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const normalized = String((req.body && req.body.email) || "").trim().toLowerCase();
+  try {
+    const user = isEmail(normalized) ? await prisma.user.findUnique({ where: { email: normalized } }) : null;
+    if (user) {
+      const token = newToken("nfrst_");
+      await prisma.passwordReset.create({
+        data: { token, userId: user.id, expiresAt: new Date(Date.now() + RESET_TTL_MS) },
+      });
+      // TODO(correo): enviar el enlace por email. En desarrollo se registra en consola.
+      console.log(`[reset] ${normalized} -> /restablecer?token=${token}`);
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo procesar la solicitud" });
+  }
+});
+
+// Confirma el restablecimiento con el token y la nueva contraseña.
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password) {
+    return res.status(400).json({ error: "token y password son obligatorios" });
+  }
+  if (String(password).length < 8) {
+    return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
+  }
+  try {
+    const row = await prisma.passwordReset.findUnique({ where: { token: String(token) } });
+    if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) {
+      return res.status(400).json({ error: "Enlace inválido o expirado" });
+    }
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: row.userId }, data: { passwordHash: hashPassword(password) } }),
+      prisma.passwordReset.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
+      prisma.token.updateMany({ where: { userId: row.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ]);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo restablecer la contraseña" });
   }
 });
 
 // ============================================
-// ROL-BASED USER CREATION
+// USER CREATION - Solo SUPER_ADMIN (el registro público es /api/auth/register)
 // ============================================
-app.post("/api/users", async (req, res) => {
-  const { email, name, role, specialty } = req.body || {};
+app.post("/api/users", need("SUPER_ADMIN"), async (req, res) => {
+  const { email, name, role, specialty, password } = req.body || {};
   if (!email || !name || !role) {
     return res.status(400).json({ error: "email, name y role son obligatorios" });
   }
 
-  // Verificar si el role es válido
   const validRoles = ["SUPER_ADMIN", "VENDEDOR", "USUARIO", "ORIENTADOR", "QUIOSK"];
   if (!validRoles.includes(role)) {
     return res.status(400).json({ error: "Role inválido" });
   }
-
-  // Super-admin puede crear cualquier role, otros solo USUARIO.
-  // El registro abierto (sin sesión) solo permite USUARIO (ver authMiddleware).
-  if (role !== "USUARIO" && (!req.authUser || req.authUser.role !== "SUPER_ADMIN")) {
-    return res.status(403).json({ error: "Solo SUPER_ADMIN puede crear este role" });
+  if (password != null && String(password).length < 8) {
+    return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
   }
 
   try {
     const user = await prisma.user.create({
       data: {
-        email: email.toLowerCase(),
-        name: name.trim(),
+        email: String(email).trim().toLowerCase(),
+        name: String(name).trim(),
         role: role,
         specialty: specialty ? String(specialty).trim() : null,
+        passwordHash: password ? hashPassword(password) : null,
       },
     });
-    res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role });
+    res.status(201).json(publicUser(user));
   } catch (error) {
+    if (error && error.code === "P2002") {
+      return res.status(409).json({ error: "El correo ya está registrado" });
+    }
     res.status(500).json({ error: "No se pudo crear el usuario" });
   }
 });
@@ -201,11 +352,10 @@ app.post("/api/users", async (req, res) => {
 
 // GET meals - Cada rol ve sus propias comidas o todas (SUPER_ADMIN)
 app.get("/api/meals", async (req, res) => {
-  const { userId, role } = req.query;
-
-  // SUPER_ADMIN ve todas las comidas, otros solo las suyas
-  // NOTA: Meal no tiene campo role, el filtro es solo por userId
-  const where = userId ? { userId: String(userId) } : {};
+  // El rol y el dueño salen del token verificado, nunca del query.
+  const isAdmin = req.authUser.role === "SUPER_ADMIN";
+  const target = isAdmin && req.query.userId ? String(req.query.userId) : req.authUser.id;
+  const where = { userId: target };
 
   try {
     const meals = await prisma.meal.findMany({ where });
@@ -263,10 +413,9 @@ app.delete("/api/meals/:id", async (req, res) => {
 // ============================================
 
 app.get("/api/workouts", async (req, res) => {
-  const { userId } = req.query;
-
-  // NOTA: Workout no tiene campo role, el filtro es solo por userId
-  const where = userId ? { userId: String(userId) } : {};
+  const isAdmin = req.authUser.role === "SUPER_ADMIN";
+  const target = isAdmin && req.query.userId ? String(req.query.userId) : req.authUser.id;
+  const where = { userId: target };
 
   try {
     const workouts = await prisma.workout.findMany({ where });
@@ -319,19 +468,11 @@ app.delete("/api/workouts/:id", async (req, res) => {
 // ============================================
 
 app.get("/api/user/profile", async (req, res) => {
-  const { userId, role } = req.query;
-
-  // SUPER_ADMIN puede ver cualquier perfil, otros solo los suyos
-  const where = role === "SUPER_ADMIN" && userId
-    ? { userId: String(userId) }
-    : userId
-      ? { userId: String(userId) }
-      : role === "SUPER_ADMIN"
-        ? {} // SUPER_ADMIN ve todos
-        : { userId: "1" }; // USUARIO por defecto
+  const isAdmin = req.authUser.role === "SUPER_ADMIN";
+  const target = isAdmin && req.query.userId ? String(req.query.userId) : req.authUser.id;
 
   try {
-    const profile = await prisma.profile.findUnique({ where });
+    const profile = await prisma.profile.findUnique({ where: { userId: target } });
     if (!profile) {
       return res.status(404).json({ error: "Perfil no encontrado" });
     }
@@ -342,7 +483,12 @@ app.get("/api/user/profile", async (req, res) => {
 });
 
 app.patch("/api/user/profile", ownBody("userId"), async (req, res) => {
-  const { userId, role, birthDate, gender, heightCm, weightKg, activityLevel, goal, wakeTime, workStart, workEnd } = req.body || {};
+  const {
+    userId, role, name, birthDate, gender, heightCm, weightKg, targetWeightKg,
+    activityLevel, goal, bmi, bmr, tdee,
+    targetCalories, targetProtein, targetCarbs, targetFat,
+    wakeTime, workStart, workEnd,
+  } = req.body || {};
   if (!userId) {
     return res.status(400).json({ error: "userId es requerido" });
   }
@@ -351,11 +497,23 @@ app.patch("/api/user/profile", ownBody("userId"), async (req, res) => {
     ? { userId: String(userId) }
     : { userId: String(userId) };
 
+  // Campos de perfil que solo se actualizan si vienen en el body.
+  const fields = {
+    birthDate: birthDate ? new Date(birthDate) : undefined,
+    gender, heightCm, weightKg, targetWeightKg, activityLevel, goal,
+    bmi, bmr, tdee, targetCalories, targetProtein, targetCarbs, targetFat,
+    wakeTime, workStart, workEnd,
+  };
+  const defined = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+
   try {
+    if (name) {
+      await prisma.user.update({ where: { id: String(userId) }, data: { name: String(name).trim() } });
+    }
     const profile = await prisma.profile.upsert({
       where,
-      update: { birthDate: birthDate ? new Date(birthDate) : undefined, gender, heightCm, weightKg, activityLevel, goal, wakeTime, workStart, workEnd },
-      create: { userId, birthDate: birthDate ? new Date(birthDate) : undefined, gender, heightCm, weightKg, activityLevel, goal, wakeTime, workStart, workEnd },
+      update: defined,
+      create: { userId, ...defined },
     });
     res.json(profile);
   } catch (error) {
@@ -369,7 +527,8 @@ app.patch("/api/user/profile", ownBody("userId"), async (req, res) => {
 
 // GET all users - Solo SUPER_ADMIN
 app.get("/api/admin/users", async (req, res) => {
-  if (req.query.role !== "SUPER_ADMIN") {
+  // Autorización desde el token verificado (no del query).
+  if (req.authUser.role !== "SUPER_ADMIN") {
     return res.status(403).json({ error: "No autorizado" });
   }
   try {
@@ -384,9 +543,6 @@ app.get("/api/admin/users", async (req, res) => {
 
 // GET all meals stats - Solo SUPER_ADMIN
 app.get("/api/admin/stats/meals", need("SUPER_ADMIN", "ORIENTADOR"), async (req, res) => {
-  if (req.query.role !== "SUPER_ADMIN") {
-    return res.status(403).json({ error: "No autorizado" });
-  }
   try {
     const total = await prisma.meal.count();
     const byRole = await prisma.$queryRaw`
@@ -406,9 +562,6 @@ app.get("/api/admin/stats/meals", need("SUPER_ADMIN", "ORIENTADOR"), async (req,
 
 // GET all workouts stats - Solo SUPER_ADMIN
 app.get("/api/admin/stats/workouts", need("SUPER_ADMIN", "ORIENTADOR"), async (req, res) => {
-  if (req.query.role !== "SUPER_ADMIN") {
-    return res.status(403).json({ error: "No autorizado" });
-  }
   try {
     const total = await prisma.workout.count();
     res.json({ total });

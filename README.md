@@ -39,35 +39,41 @@ Usuario: nutriflow / Password: password123
 
 ## 🔧 API REST (Puerto 3001)
 
-### Enfoque: Registro de Comidas
+### Autenticación real (Sprint 1)
 
 ```
-GET    /health                    → Estado del servidor
-POST   /api/users                 → Crear usuario
-GET    /api/meals?userId=1        → Listar comidas del usuario
-POST   /api/meals                 → Crear comida
-       Body: { userId, type, scheduledAt?, calories?, proteinG, carbsG, fatG }
-DELETE /api/meals/:id             → Eliminar comida
-
-Example:
-POST /api/meals
-{
-  "userId": "1",
-  "type": "Desayuno",
-  "calories": 450,
-  "proteinG": 20,
-  "carbsG": 50,
-  "fatG": 15
-}
+POST /api/auth/login           → Iniciar sesión (email + password hasheada)
+POST /api/auth/register        → Registro abierto (solo rol USUARIO) con contraseña (mín. 8)
+POST /api/auth/refresh         → Renovar access token con el refresh token
+POST /api/auth/logout          → Cerrar sesión (revoca access + refresh)
+GET  /api/auth/me              → Usuario dueño del token
+POST /api/auth/forgot-password → Solicitar reset (nunca revela si el correo existe)
+POST /api/auth/reset-password  → Confirmar reset con token (revoca sesiones)
+POST /api/users                → Crear usuario (SOLO SUPER_ADMIN, con password opcional)
 ```
 
-### Login Simple
+- **Hash de contraseñas**: `crypto.scryptSync` nativo (cero dependencias), formato `scrypt$N$r$p$salt$hash`.
+- **Sesiones**: access token 2h, refresh token 30d, reset 1h. Todo con expiración y revocación en `Token`/`PasswordReset`.
+- **Autorización**: el rol y el dueño salen del token verificado (`x-role` validado contra el token). Los endpoints de lectura fuerzan los datos del usuario autenticado (SUPER_ADMIN puede leer a cualquiera; los demás solo sus propios datos).
+
+### Credenciales demo
 
 ```
-POST /api/auth/login
-Body: { email, password }
-Credenciales: admin@nutriflow.com / password123
-Response: { token, user }
+super_admin@nutriflow.com / password123   (SUPER_ADMIN)
+vendedor@nutriflow.com    / 123456        (VENDEDOR)
+usuario@nutriflow.com     / password123   (USUARIO)
+orientador@nutriflow.com  / orientador1   (ORIENTADOR)
+quiosk@nutriflow.com      / kiosk123      (QUIOSK)
+```
+
+### Datos
+
+```
+GET    /api/meals?userId=…     → Listar comidas (solo las del token; admin puede ver cualquiera)
+POST   /api/meals              → Crear comida (Body: { userId, type, scheduledAt?, calories?, proteinG, carbsG, fatG })
+DELETE /api/meals/:id          → Eliminar comida (dueño o admin)
+GET    /api/user/profile       → Perfil del usuario del token (o ?userId=… para admin)
+PATCH  /api/user/profile       → Actualizar perfil (acepta name y metas: targetCalories, targetProtein…)
 ```
 
 ---
