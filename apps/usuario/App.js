@@ -175,6 +175,18 @@ function openVideo(url) {
   if (url) Linking.openURL(url).catch(() => {});
 }
 
+// --- Feed "Para ti": publicaciones de profesionales y negocios ---
+const FEED_KINDS = ["TODOS", "TIP", "REEL", "VIDEO", "PROMO", "FOTO"];
+const FEED_ROLE_LABEL = { NUTRICIONISTA: "Nutricionista", ENTRENADOR: "Entrenador", VENDEDOR: "Negocio", SUPER_ADMIN: "Equipo FitLife" };
+// Color del badge por tipo: TIP→teal, REEL/PROMO→coral, VIDEO→info, FOTO→amber.
+function feedKindColor(kind) {
+  if (kind === "TIP") return { color: C.teal, soft: C.tealSoft, vivid: C.tealVivid };
+  if (kind === "REEL" || kind === "PROMO") return { color: C.coral, soft: C.coralSoft, vivid: C.coralVivid };
+  if (kind === "VIDEO") return { color: C.info, soft: C.infoSoft, vivid: C.infoVivid };
+  if (kind === "FOTO") return { color: C.amber, soft: C.amberSoft, vivid: C.amberVivid };
+  return { color: C.muted, soft: C.surface2, vivid: C.brandVivid };
+}
+
 function openNow(r, hour) {
   if (r.openHour == null || r.closeHour == null) return true;
   if (r.openHour <= r.closeHour) return hour >= r.openHour && hour < r.closeHour;
@@ -191,6 +203,27 @@ function timeAgo(d, now) {
   if (s < 60) return `hace ${s}s`;
   if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
   return `hace ${Math.floor(s / 3600)} h`;
+}
+
+// --- Sesiones con el profesional (videollamadas y lives) ---
+function sesActiva(s) {
+  return String((s && s.status) || "ACTIVA").toUpperCase() === "ACTIVA";
+}
+
+function sesStatusLabel(status) {
+  const raw = String(status || "").trim();
+  if (!raw) return "Programada";
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+function fmtSesionDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const f = (n) => String(n).padStart(2, "0");
+  const mes = MESES[d.getMonth()] || "";
+  const mesT = mes.charAt(0).toUpperCase() + mes.slice(1);
+  return `${DIAS[((d.getDay() + 6) % 7) + 1]} ${d.getDate()} de ${mesT} · ${f(d.getHours())}:${f(d.getMinutes())}`;
 }
 
 export default function App() {
@@ -225,6 +258,9 @@ export default function App() {
   const [syncAt, setSyncAt] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [celebrar, setCelebrar] = useState(false);
+  const [sesiones, setSesiones] = useState([]); // videollamadas y lives con el profesional
+  const [posts, setPosts] = useState([]);
+  const [feedFilter, setFeedFilter] = useState("TODOS");
 
   // Refresca el "hace Xs" sin recargar datos.
   useEffect(() => {
@@ -303,6 +339,25 @@ export default function App() {
       recent: [...workouts].sort((a, b) => String(wday(b)).localeCompare(String(wday(a)))),
     };
   }, [workouts]);
+
+  // ---------------- Sesiones con el profesional (videollamadas y lives) --------
+  const sesInfo = useMemo(() => {
+    const list = Array.isArray(sesiones) ? sesiones : [];
+    // Las que no tienen fecha programada van primero: son las que están en curso.
+    const ts = (s) => {
+      if (!s.scheduledAt) return 0;
+      const t = new Date(s.scheduledAt).getTime();
+      return isNaN(t) ? 0 : t;
+    };
+    const ordenadas = list.slice().sort((a, b) => ts(a) - ts(b));
+    return {
+      total: list.length,
+      activas: ordenadas.filter(sesActiva),
+      lives: list.filter((s) => String(s.type || "").toUpperCase() === "LIVE").length,
+      proxima: ordenadas.find(sesActiva) || null,
+      ordenadas,
+    };
+  }, [sesiones]);
 
   // Registros agrupados por día, del más reciente al más antiguo.
   const byDay = useMemo(() => {
@@ -436,19 +491,24 @@ export default function App() {
     if (!id) return;
     setRefreshing(true);
     try {
-      const [rec, r, g, m, p, w] = await Promise.all([
+      const [rec, r, g, m, p, w, posts, ses] = await Promise.all([
         api("/api/recipes"),
         api("/api/restaurants"),
         api("/api/gyms"),
         api(`/api/meals?userId=${id}`),
         api(`/api/user/profile?userId=${id}`).catch(() => null),
         api("/api/workouts").catch(() => []),
+        api("/api/posts").catch(() => []),
+        api("/api/sessions").catch(() => []),
       ]);
       setRecipes(rec);
       setRests(r);
       setGyms(g);
       setMeals(m);
       setWorkouts(Array.isArray(w) ? w : []);
+      setPosts(Array.isArray(posts) ? posts : []);
+      // Videollamadas y lives con el profesional (la API ya filtra por clientId).
+      setSesiones(Array.isArray(ses) ? ses : []);
       // Carta real de cada restaurante (platos con kcal, proteína y precio).
       // Si uno falla, ese restaurante simplemente se queda sin platos.
       try {
@@ -768,7 +828,7 @@ export default function App() {
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
-          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["entrenos", "Entrenos"], ["comidas", "Mis comidas"], ["plan", "Membresía"]].map(([t, label]) => (
+          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["entrenos", "Entrenos"], ["sesiones", "Mis sesiones"], ["comidas", "Mis comidas"], ["plan", "Membresía"], ["feed", "Para ti"]].map(([t, label]) => (
             <Press
               key={t}
               style={[styles.tab, tab === t && styles.tabOn]}
@@ -818,6 +878,33 @@ export default function App() {
                 <StatRow label="Grasas" value={Math.round(stats.fat)} max={goalFat} unit="g" color={C.tealVivid} index={4} />
               </View>
             </FadeUp>
+
+            {sesInfo.proxima ? (
+              <FadeUp index={2} style={[today.card, { borderColor: C.brandVivid + "66" }]}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardT}>Próxima sesión</Text>
+                  <Pill color={C.brand} soft={C.brandSoft}>
+                    {sesInfo.proxima.type === "LIVE" ? "🔴 LIVE" : "📞 Videollamada"}
+                  </Pill>
+                </View>
+                <Text style={styles.rowT}>{sesInfo.proxima.topic || "Sesión con tu profesional"}</Text>
+                <Text style={styles.rowS}>
+                  {sesInfo.proxima.professional?.name || "Tu profesional"}
+                  {sesInfo.proxima.professional?.specialty ? ` · ${sesInfo.proxima.professional.specialty}` : ""}
+                </Text>
+                {fmtSesionDate(sesInfo.proxima.scheduledAt) ? (
+                  <Text style={[styles.rowS, { fontWeight: "800", color: C.text }]}>
+                    🕒 {fmtSesionDate(sesInfo.proxima.scheduledAt)}
+                  </Text>
+                ) : null}
+                <Press
+                  style={[today.btn, { backgroundColor: sesInfo.proxima.type === "LIVE" ? C.coralVivid : C.brand }]}
+                  onPress={() => openVideo(sesInfo.proxima.meetUrl)}
+                >
+                  <Text style={styles.btnTxt}>Unirse a la sesión</Text>
+                </Press>
+              </FadeUp>
+            ) : null}
 
             <View style={today.kpiRow}>
               <KpiCard index={5} icon={<IconFlame size={17} />} value={stats.streak} label={stats.streak === 1 ? "Día de racha" : "Días de racha"} color={C.orangeVivid} />
@@ -1270,6 +1357,166 @@ export default function App() {
             )}
           </View>
         )}
+
+        {tab === "sesiones" && (
+          <View>
+            <SectionHead
+              title="Mis sesiones"
+              count={sesInfo.total}
+              right={
+                <Pill color={C.brand} soft={C.brandSoft}>
+                  {sesInfo.activas.length} {sesInfo.activas.length === 1 ? "activa" : "activas"}
+                </Pill>
+              }
+            />
+
+            {!isPremium ? (
+              <EmptyState
+                icon="📞"
+                title="Con PREMIUM hablas con tu profesional"
+                text="Tu membresía incluye nutricionista y entrenador que siguen tu progreso, además de videollamadas y lives exclusivos. Súbela y aquí aparecerán tus sesiones con el enlace para unirte."
+                cta="Subir a PREMIUM · S/ 49.90"
+                onPress={() => { setTab("plan"); }}
+              />
+            ) : (
+              <View>
+                <View style={ses.kpiRow}>
+                  <KpiCard
+                    index={0}
+                    icon="📞"
+                    value={sesInfo.activas.length}
+                    label="Sesiones activas"
+                    color={C.brandVivid}
+                  />
+                  <KpiCard
+                    index={1}
+                    icon="🔴"
+                    value={sesInfo.lives}
+                    label="Lives contigo"
+                    color={C.coralVivid}
+                  />
+                </View>
+
+                {sesInfo.total === 0 ? (
+                  <EmptyState
+                    icon="📅"
+                    title="Tu profesional aún no ha agendado sesiones"
+                    text="En cuanto programe una videollamada o un live para ti, aparecerá aquí con el enlace para unirte."
+                  />
+                ) : (
+                  sesInfo.ordenadas.map((s, i) => {
+                    const esLive = String(s.type || "").toUpperCase() === "LIVE";
+                    const activa = sesActiva(s);
+                    const cuando = fmtSesionDate(s.scheduledAt);
+                    return (
+                      <FadeUp key={s.id} index={i} delay={i * 40}>
+                        <View style={styles.card}>
+                          <View style={styles.cardHead}>
+                            <Text style={[styles.cardT, { flex: 1, marginBottom: 0 }]} numberOfLines={1}>
+                              {esLive ? "🔴 LIVE" : "📞 Videollamada"}
+                            </Text>
+                            <Pill color={activa ? C.brand : C.amber} soft={activa ? C.brandSoft : C.amberSoft}>
+                              {activa ? "ACTIVA" : sesStatusLabel(s.status)}
+                            </Pill>
+                          </View>
+                          <Text style={styles.rowT}>{s.topic || "Sesión con tu profesional"}</Text>
+                          <Text style={styles.rowS}>
+                            {s.professional?.name || "Tu profesional"}
+                            {s.professional?.specialty ? ` · ${s.professional.specialty}` : ""}
+                          </Text>
+                          {cuando ? (
+                            <Text style={[styles.rowS, { fontWeight: "800", color: C.text }]}>🕒 {cuando}</Text>
+                          ) : null}
+                          {s.meetUrl ? (
+                            <Press
+                              style={[styles.btn, { backgroundColor: esLive ? C.coralVivid : C.brand, marginTop: 12 }]}
+                              onPress={() => openVideo(s.meetUrl)}
+                            >
+                              <Text style={styles.btnTxt}>{activa ? "Unirse" : "Abrir enlace"}</Text>
+                            </Press>
+                          ) : (
+                            <Text style={[styles.muted, { marginTop: 8 }]}>
+                              Sin enlace todavía: tu profesional te lo compartirá aquí.
+                            </Text>
+                          )}
+                        </View>
+                      </FadeUp>
+                    );
+                  })
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        {tab === "feed" && (
+          <View>
+            <SectionHead
+              title="Para ti"
+              count={posts.length}
+              right={<Pill color={C.coral} soft={C.coralSoft}>Reels y tips</Pill>}
+            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={feed.chips}>
+              {FEED_KINDS.map((k) => (
+                <Pressable
+                  key={k}
+                  style={[styles.chip, feedFilter === k && styles.chipOn]}
+                  scale={0.94}
+                  onPress={() => setFeedFilter(k)}
+                >
+                  <Text style={[styles.chipTxt, feedFilter === k && styles.chipTxtOn]}>{k}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {posts.filter((p) => feedFilter === "TODOS" || p.kind === feedFilter).length === 0 ? (
+              <EmptyState
+                icon="✨"
+                title={feedFilter === "TODOS" ? "Todavía no hay publicaciones" : `Sin publicaciones de tipo ${feedFilter}`}
+                text={
+                  feedFilter === "TODOS"
+                    ? "Tu nutricionista, entrenador o los negocios cerca de ti publican reels, tips y promos. Aparecerán aquí."
+                    : `Todavía no hay publicaciones de tipo ${feedFilter}. Prueba con otro filtro.`
+                }
+              />
+            ) : (
+              posts
+                .filter((p) => feedFilter === "TODOS" || p.kind === feedFilter)
+                .map((p, i) => {
+                  const tone = feedKindColor(p.kind);
+                  const isVideo = p.kind === "REEL" || p.kind === "VIDEO";
+                  const rol = FEED_ROLE_LABEL[p.author?.role] || (p.author?.role ? String(p.author.role).toLowerCase() : "Profesional");
+                  return (
+                    <FadeUp key={p.id} index={i}>
+                      <View style={[styles.card, { borderColor: tone.vivid + (isVideo ? "ff" : "55") }, isVideo && feed.cardVideo]}>
+                        <View style={styles.cardHead}>
+                          <Pill color={tone.color} soft={tone.soft}>{p.kind || "POST"}</Pill>
+                          <Text style={styles.rowS}>{p.createdAt ? timeAgo(p.createdAt, now) : ""}</Text>
+                        </View>
+                        <Text style={styles.cardT}>{p.title}</Text>
+                        <View style={feed.authorRow}>
+                          <View style={[feed.authorAvatar, { backgroundColor: tone.soft }]}>
+                            <IconSparkle size={14} color={tone.vivid} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={feed.authorName}>{p.author?.name || "Profesional"}</Text>
+                            <Text style={styles.rowS}>
+                              {rol}{p.specialty ? ` · ${p.specialty}` : ""}
+                            </Text>
+                          </View>
+                        </View>
+                        {p.description ? <Text style={[styles.rowS, feed.desc]}>{p.description}</Text> : null}
+                        {p.mediaUrl ? (
+                          <Press style={[styles.btn, { backgroundColor: DARK, marginTop: 10 }]} scale={0.97} onPress={() => openVideo(p.mediaUrl)}>
+                            <Text style={styles.btnTxt}>{isVideo ? "▶ Ver" : "▶ Ver foto"}</Text>
+                          </Press>
+                        ) : null}
+                      </View>
+                    </FadeUp>
+                  );
+                })
+            )}
+          </View>
+        )}
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -1323,6 +1570,11 @@ const styles = StyleSheet.create({
   dayBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#f1f5e9", alignItems: "center", justifyContent: "center", marginRight: 10 },
   dayToday: { backgroundColor: GREEN },
   dayTxt: { fontWeight: "800", color: "#12211a", fontSize: 12 },
+  chips: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: "#dbe1d8", backgroundColor: "#fff" },
+  chipOn: { backgroundColor: "#dcfce7", borderColor: GREEN },
+  chipTxt: { color: "#5f7167", fontSize: 12, fontWeight: "700" },
+  chipTxtOn: { color: "#15803d" },
 });
 
 // --- Estilos del rediseño (usuario) ---
@@ -1397,4 +1649,27 @@ const train = StyleSheet.create({
   weekLabels: { flexDirection: "row", gap: 4, marginTop: 6 },
   weekL: { flex: 1, textAlign: "center", fontSize: 10, color: "#5f7167", fontWeight: "700" },
   del: { color: "#e11d48", fontWeight: "800", fontSize: 12 },
+});
+
+// --- Estilos del feed "Para ti" (usuario) ---
+const feed = StyleSheet.create({
+  chips: { marginBottom: 4 },
+  cardVideo: {
+    borderWidth: 2,
+    backgroundColor: "#fffcfc",
+    shadowColor: "#e11d48",
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  authorRow: { flexDirection: "row", alignItems: "center", gap: 9, marginTop: 4, marginBottom: 4 },
+  authorAvatar: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  authorName: { fontSize: 13, fontWeight: "800", color: "#12211a" },
+  desc: { marginTop: 4, lineHeight: 19 },
+});
+
+// --- Estilos de la pestaña Mis sesiones (usuario) ---
+const ses = StyleSheet.create({
+  kpiRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
 });
