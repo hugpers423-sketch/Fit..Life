@@ -15,8 +15,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars } from "./nfui";
-import { IconRun, IconTrophy, IconBell, IconLeaf } from "./nf-icons";
+import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars, Confetti } from "./nfui";
+import { IconRun, IconTrophy, IconBell, IconLeaf, IconDumbbell, IconSparkle } from "./nf-icons";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 let API_URL = "http://192.168.18.167:3001";
@@ -146,6 +146,26 @@ function weekKey(iso) {
   return `${d.getFullYear()}-S${week}`;
 }
 
+// Los ingredientes pueden venir como texto plano o como lista de objetos
+// { name|item, qty, price }. Se normaliza a una sola línea legible.
+function fmtIngredientes(ing) {
+  if (!ing) return "";
+  if (typeof ing === "string") return ing;
+  if (Array.isArray(ing)) {
+    return ing
+      .map((x) => {
+        if (typeof x === "string") return x;
+        if (!x || typeof x !== "object") return "";
+        const nombre = x.name || x.item || x.ingredient || "";
+        const qty = x.qty || x.quantity || x.amount || "";
+        return [nombre, qty].filter(Boolean).join(" ");
+      })
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return "";
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState("orientador@nutriflow.com");
@@ -169,6 +189,18 @@ export default function App() {
   const [pKind, setPKind] = useState("REEL");
   const [pMedia, setPMedia] = useState("");
   const [pDesc, setPDesc] = useState("");
+  // Recetas (menú semanal)
+  const [recipes, setRecipes] = useState([]);
+  const [rName, setRName] = useState("");
+  const [rDay, setRDay] = useState(1);
+  const [rMealType, setRMealType] = useState("DESAYUNO");
+  const [rVideo, setRVideo] = useState("");
+  const [rIngredients, setRIngredients] = useState("");
+  const [rPrice, setRPrice] = useState("");
+  const [rCalories, setRCalories] = useState("");
+  const [rProtein, setRProtein] = useState("");
+  const [reelsSubTab, setReelsSubTab] = useState("reels"); // 'reels' | 'recetas'
+  const [showConfetti, setShowConfetti] = useState(false);
   const [sTopic, setSTopic] = useState("");
   const [sClient, setSClient] = useState("");
   const [sType, setSType] = useState("VIDEOCALL");
@@ -285,6 +317,7 @@ export default function App() {
     } finally {
       setRefreshing(false);
     }
+    loadRecipes();
   }
 
   // Restaura la sesión guardada al abrir la app (valida y renueva el token).
@@ -388,6 +421,57 @@ export default function App() {
       });
       setOk(okVal ? "Producto avalado." : "Aval retirado.");
       load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function loadRecipes() {
+    try {
+      const data = await api(`/api/recipes`);
+      setRecipes(Array.isArray(data) ? data : data?.data || []);
+    } catch (e) {
+      // Silencioso si falla
+    }
+  }
+
+  async function publishRecipe() {
+    if (!rName.trim()) {
+      setError("El nombre de la receta es obligatorio.");
+      return;
+    }
+    if (!rIngredients.trim()) {
+      setError("Los ingredientes son obligatorios.");
+      return;
+    }
+    try {
+      await api("/api/recipes", {
+        method: "POST",
+        body: JSON.stringify({
+          authorId: user.id,
+          name: rName.trim(),
+          day: Number(rDay),
+          mealType: rMealType,
+          videoUrl: rVideo.trim() || null,
+          ingredients: rIngredients.trim(),
+          totalPrice: Number(rPrice) || 0,
+          calories: Number(rCalories) || 0,
+          proteinG: Number(rProtein) || 0,
+        }),
+      });
+      setOk("Receta publicada en el menú semanal.");
+      setError("");
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 1200);
+      setRName("");
+      setRVideo("");
+      setRIngredients("");
+      setRPrice("");
+      setRCalories("");
+      setRProtein("");
+      setRDay(1);
+      setRMealType("DESAYUNO");
+      loadRecipes();
     } catch (e) {
       setError(e.message);
     }
@@ -595,37 +679,103 @@ export default function App() {
 
         {tab === "reels" && (
           <View>
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Publicar reel / tip ({spec})</Text>
-              <View style={styles.chips}>
-                {["REEL", "VIDEO", "FOTO", "TIP"].map((k) => (
-                  <Pressable key={k} style={[styles.chip, pKind === k && styles.chipOn]} onPress={() => setPKind(k)}>
-                    <Text style={[styles.chipTxt, pKind === k && styles.chipTxtOn]}>{k}</Text>
+            <View style={styles.chips}>
+              {["reels", "recetas"].map((k) => (
+                <Pressable key={k} style={[styles.chip, reelsSubTab === k && styles.chipOn]} onPress={() => setReelsSubTab(k)}>
+                  <Text style={[styles.chipTxt, reelsSubTab === k && styles.chipTxtOn]}>{k === "reels" ? "Reels / Tips" : "Recetas"}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {reelsSubTab === "reels" && (
+              <View>
+                <View style={styles.card}>
+                  <Text style={styles.cardT}>Publicar reel / tip ({spec})</Text>
+                  <View style={styles.chips}>
+                    {["REEL", "VIDEO", "FOTO", "TIP"].map((k) => (
+                      <Pressable key={k} style={[styles.chip, pKind === k && styles.chipOn]} onPress={() => setPKind(k)}>
+                        <Text style={[styles.chipTxt, pKind === k && styles.chipTxtOn]}>{k}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Field label="Título" value={pTitle} onChangeText={setPTitle} placeholder="Rutina de pierna en 20 min" />
+                  <Field label="URL foto/video (opcional)" value={pMedia} onChangeText={setPMedia} autoCapitalize="none" placeholder="https://…" />
+                  <Field label="Descripción / tip" value={pDesc} onChangeText={setPDesc} placeholder="3 series de 12…" />
+                  <Pressable style={styles.btn} onPress={publish}>
+                    <Text style={styles.btnTxt}>Publicar</Text>
                   </Pressable>
+                </View>
+                {posts.map((p) => (
+                  <View key={p.id} style={styles.card}>
+                    <Text style={[styles.rowS, { fontWeight: "800", color: TEAL }]}>{p.kind} · {p.specialty || ""}</Text>
+                    <Text style={styles.cardT}>{p.title}</Text>
+                    {p.mediaUrl && p.kind === "FOTO" ? (
+                      <Image source={{ uri: p.mediaUrl }} style={{ width: "100%", height: 180, borderRadius: 12, marginTop: 8 }} />
+                    ) : null}
+                    {p.description ? <Text style={styles.rowS}>{p.description}</Text> : null}
+                    {p.mediaUrl && p.kind !== "FOTO" ? (
+                      <Pressable style={[styles.btn, { backgroundColor: DARK, marginTop: 10 }]} onPress={() => Linking.openURL(p.mediaUrl).catch(() => {})}>
+                        <Text style={styles.btnTxt}>▶ Ver {p.kind === "LIVE" ? "live" : "video"}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 ))}
               </View>
-              <Field label="Título" value={pTitle} onChangeText={setPTitle} placeholder="Rutina de pierna en 20 min" />
-              <Field label="URL foto/video (opcional)" value={pMedia} onChangeText={setPMedia} autoCapitalize="none" placeholder="https://…" />
-              <Field label="Descripción / tip" value={pDesc} onChangeText={setPDesc} placeholder="3 series de 12…" />
-              <Pressable style={styles.btn} onPress={publish}>
-                <Text style={styles.btnTxt}>Publicar</Text>
-              </Pressable>
-            </View>
-            {posts.map((p) => (
-              <View key={p.id} style={styles.card}>
-                <Text style={[styles.rowS, { fontWeight: "800", color: TEAL }]}>{p.kind} · {p.specialty || ""}</Text>
-                <Text style={styles.cardT}>{p.title}</Text>
-                {p.mediaUrl && p.kind === "FOTO" ? (
-                  <Image source={{ uri: p.mediaUrl }} style={{ width: "100%", height: 180, borderRadius: 12, marginTop: 8 }} />
-                ) : null}
-                {p.description ? <Text style={styles.rowS}>{p.description}</Text> : null}
-                {p.mediaUrl && p.kind !== "FOTO" ? (
-                  <Pressable style={[styles.btn, { backgroundColor: DARK, marginTop: 10 }]} onPress={() => Linking.openURL(p.mediaUrl).catch(() => {})}>
-                    <Text style={styles.btnTxt}>▶ Ver {p.kind === "LIVE" ? "live" : "video"}</Text>
+            )}
+            {reelsSubTab === "recetas" && (
+              <View>
+                <View style={styles.card}>
+                  <Text style={styles.cardT}>Publicar receta en menú semanal</Text>
+                  <Field label="Nombre" value={rName} onChangeText={setRName} placeholder="Ensalada de quinoa y pollo" />
+                  <View style={styles.chips}>
+                    {[1, 2, 3, 4, 5, 6, 7].map((d) => (
+                      <Pressable key={d} style={[styles.chip, rDay === d && styles.chipOn]} onPress={() => setRDay(d)}>
+                        <Text style={[styles.chipTxt, rDay === d && styles.chipTxtOn]}>Día {d}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View style={styles.chips}>
+                    {["DESAYUNO", "COMIDA", "CENA", "SNACK"].map((k) => (
+                      <Pressable key={k} style={[styles.chip, rMealType === k && styles.chipOn]} onPress={() => setRMealType(k)}>
+                        <Text style={[styles.chipTxt, rMealType === k && styles.chipTxtOn]}>{k}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Field label="URL video (opcional)" value={rVideo} onChangeText={setRVideo} autoCapitalize="none" placeholder="https://…" />
+                  <Field label="Ingredientes (JSON o texto)" value={rIngredients} onChangeText={setRIngredients} placeholder='[{"item":"Pollo","qty":"150g"},{"item":"Quinoa","qty":"80g"}]' />
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <Field style={{ flex: 1 }} label="Precio total (S/)" value={rPrice} onChangeText={setRPrice} keyboardType="numeric" placeholder="12.50" />
+                    <Field style={{ flex: 1 }} label="Calorías" value={rCalories} onChangeText={setRCalories} keyboardType="numeric" placeholder="350" />
+                    <Field style={{ flex: 1 }} label="Proteína (g)" value={rProtein} onChangeText={setRProtein} keyboardType="numeric" placeholder="28" />
+                  </View>
+                  <Pressable style={styles.btn} onPress={publishRecipe}>
+                    <Text style={styles.btnTxt}>Publicar receta</Text>
                   </Pressable>
-                ) : null}
+                </View>
+                {recipes.length === 0 ? (
+                  <EmptyState
+                    icon="🍽️"
+                    title="Sin recetas publicadas"
+                    text="Crea tu menú semanal día por día. Se hace upsert por día y tipo de comida."
+                  />
+                ) : (
+                  recipes.map((rc, i) => (
+                    <FadeUp key={rc.id} index={i} style={styles.card}>
+                      <View style={styles.row}>
+                        <View style={{ flex: 1 }}>
+                          <View style={pro.headRow}>
+                            <Text style={styles.rowT}>{rc.name}</Text>
+                            <Pill color={C.teal} soft={C.tealSoft}>{rc.mealType}</Pill>
+                            <Pill color={C.info} soft={C.infoSoft}>Día {rc.day}</Pill>
+                          </View>
+                          <Text style={styles.rowS}>{rc.calories} kcal · {rc.proteinG}g prot · S/ {Number(rc.totalPrice || 0).toFixed(2)}</Text>
+                          <Text style={styles.rowS}>{fmtIngredientes(rc.ingredients)}</Text>
+                        </View>
+                      </View>
+                    </FadeUp>
+                  ))
+                )}
               </View>
-            ))}
+            )}
           </View>
         )}
 
@@ -740,6 +890,7 @@ export default function App() {
           </View>
         )}
         <View style={{ height: 40 }} />
+        {showConfetti && <Confetti count={18} duration={900} active={true} colors={[C.brandVivid, C.amberVivid, C.coralVivid, C.tealVivid, C.infoVivid]} />}
       </ScrollView>
     </View>
   );
