@@ -4,6 +4,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Linking,
   Pressable,
   RefreshControl,
@@ -258,6 +259,17 @@ export default function App() {
   const [syncAt, setSyncAt] = useState(null);
   const [now, setNow] = useState(Date.now());
   const [celebrar, setCelebrar] = useState(false);
+
+  // --- Alimentos: búsqueda libre y registro ---
+  const [foodSearch, setFoodSearch] = useState("");
+  const [foodResults, setFoodResults] = useState([]);
+  const [foodSearching, setFoodSearching] = useState(false);
+  const [selectedFood, setSelectedFood] = useState(null);
+  const [foodQty, setFoodQty] = useState("");
+  const [foodUnit, setFoodUnit] = useState("g");
+  const [foodMealType, setFoodMealType] = useState("Comida");
+  const [foodPhoto, setFoodPhoto] = useState(null);
+
   const [sesiones, setSesiones] = useState([]); // videollamadas y lives con el profesional
   const [posts, setPosts] = useState([]);
   const [feedFilter, setFeedFilter] = useState("TODOS");
@@ -685,6 +697,76 @@ export default function App() {
     }
   }
 
+  // --- Alimentos: búsqueda y registro libre ---
+  async function searchFoods(query) {
+    const q = typeof query === 'string' ? query : (query?.nativeEvent?.text || '');
+    if (!q.trim() || q.length < 2) {
+      setFoodResults([]);
+      return;
+    }
+    setFoodSearching(true);
+    try {
+      const res = await api(`/api/foods?search=${encodeURIComponent(q)}&limit=10`);
+      setFoodResults(res.data || []);
+    } catch (e) {
+      setFoodResults([]);
+      setError(e.message);
+    } finally {
+      setFoodSearching(false);
+    }
+  }
+
+  async function logFreeFood() {
+    if (!selectedFood) {
+      setError("Selecciona un alimento primero");
+      return;
+    }
+    if (!foodQty || Number(foodQty) <= 0) {
+      setError("Ingresa una cantidad válida");
+      return;
+    }
+    const qty = Number(foodQty);
+    const factor = qty / 100;
+    const calories = Math.round((selectedFood.calories100g || 0) * factor);
+    const proteinG = Math.round((selectedFood.protein100g || 0) * factor * 10) / 10;
+    const carbsG = Math.round((selectedFood.carbs100g || 0) * factor * 10) / 10;
+    const fatG = Math.round((selectedFood.fat100g || 0) * factor * 10) / 10;
+    const fiberG = selectedFood.fiber100g ? Math.round((selectedFood.fiber100g || 0) * factor * 10) / 10 : null;
+    const sugarG = selectedFood.sugar100g ? Math.round((selectedFood.sugar100g || 0) * factor * 10) / 10 : null;
+    const sodiumMg = selectedFood.sodium100g ? Math.round((selectedFood.sodium100g || 0) * factor * 10) / 10 : null;
+
+    try {
+      await api("/api/meals", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: user.id,
+          type: foodMealType,
+          name: `${selectedFood.nameEs || selectedFood.name} (${qty}${foodUnit})`,
+          source: "LIBRE",
+          calories,
+          proteinG,
+          carbsG,
+          fatG,
+          fiberG,
+          sugarG,
+          sodiumMg,
+          isManualEntry: true,
+          eatenAt: new Date().toISOString(),
+        }),
+      });
+      setOk(`Registrado: ${selectedFood.nameEs || selectedFood.name} (${qty}${foodUnit})`);
+      celebrarLogro();
+      // Limpiar formulario
+      setFoodSearch("");
+      setFoodResults([]);
+      setSelectedFood(null);
+      setFoodQty("");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   async function addWorkout() {
     const type = wType.trim();
     const min = Number(wMin);
@@ -846,7 +928,7 @@ export default function App() {
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
-          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["entrenos", "Entrenos"], ["sesiones", "Mis sesiones"], ["comidas", "Mis comidas"], ["plan", "Membresía"], ["feed", "Para ti"], ["historial", "Historial"]].map(([t, label]) => (
+          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["entrenos", "Entrenos"], ["sesiones", "Mis sesiones"], ["comidas", "Mis comidas"], ["alimentos", "Alimentos"], ["plan", "Membresía"], ["feed", "Para ti"], ["historial", "Historial"]].map(([t, label]) => (
             <Press
               key={t}
               style={[styles.tab, tab === t && styles.tabOn]}
@@ -1618,6 +1700,97 @@ export default function App() {
           </View>
         )}
 
+        {tab === "alimentos" && (
+          <View>
+            <SectionHead title="Buscar alimentos" right={<Pill color={C.brand} soft={C.brandSoft}>Base: 15 alimentos</Pill>} />
+            <FadeUp index={0} style={styles.card}>
+              <Text style={styles.cardT}>Busca un alimento</Text>
+              <Text style={styles.rowS}>Escribe el nombre y elige la cantidad. Los macros se calculan automáticamente.</Text>
+              <View style={styles.twoCols}>
+                <View style={{ flex: 1 }}>
+                  <Field
+                    label="Buscar alimento"
+                    value={foodSearch}
+                    onChangeText={setFoodSearch}
+                    placeholder="Ej: pollo, arroz, aguacate..."
+                    onSubmitEditing={searchFoods}
+                  />
+                </View>
+                <View style={{ width: 12 }} />
+                <View style={{ flex: 1 }}>
+                  <Press style={[styles.btn, { backgroundColor: C.brand }]} onPress={() => searchFoods(foodSearch)} disabled={foodSearching}>
+                    <Text style={styles.btnTxt}>{foodSearching ? "Buscando…" : "Buscar"}</Text>
+                  </Press>
+                </View>
+              </View>
+              {foodSearching && <View style={styles.row}><ActivityIndicator size="small" color={C.brand} /><Text style={styles.muted} style={{ marginLeft: 8 }}>Buscando…</Text></View>}
+              {foodResults.length > 0 && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.rowS}>Resultados:</Text>
+                  {foodResults.map((f, i) => (
+                    <Pressable key={f.id} style={styles.row} onPress={() => setSelectedFood(f)}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.rowT}>{f.nameEs || f.name}</Text>
+                        <Text style={styles.rowS}>
+                          {f.calories100g} kcal · {f.protein100g}g prot · {f.carbs100g}g carb · {f.fat100g}g fat · 100g
+                          {f.tags && f.tags.length > 0 && <Text style={{ marginLeft: 8 }}>{f.tags.map(t => `#${t}`).join(" ")}</Text>}
+                        </Text>
+                      </View>
+                      <IconCheck size={20} color={C.brand} />
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+              {selectedFood && (
+                <View style={[styles.card, { marginTop: 14, borderColor: C.brand + "55" }]}>
+                  <Text style={styles.cardT}>Registrar: {selectedFood.nameEs || selectedFood.name}</Text>
+                  <Text style={styles.rowS}>{selectedFood.calories100g} kcal · {selectedFood.protein100g}g prot · 100g</Text>
+                  <View style={styles.twoCols}>
+                    <View style={{ flex: 1 }}>
+                      <Field label="Cantidad" value={foodQty} onChangeText={setFoodQty} keyboardType="numeric" placeholder="100" />
+                    </View>
+                    <View style={{ width: 12 }} />
+                    <View style={{ flex: 1 }}>
+                      <Field label="Unidad" value={foodUnit} onChangeText={setFoodUnit} placeholder="g" />
+                    </View>
+                  </View>
+                  <Field label="Tipo de comida" value={foodMealType} onChangeText={setFoodMealType} placeholder="Comida, Cena, Desayuno, Snack" />
+                  <Press style={[styles.btn, { backgroundColor: C.brand, marginTop: 10 }]} onPress={logFreeFood}>
+                    <Text style={styles.btnTxt}>Registrar ({Math.round((selectedFood.calories100g || 0) * (Number(foodQty || 0) / 100))} kcal)</Text>
+                  </Press>
+                  <Pressable style={styles.linkBtn} onPress={() => setSelectedFood(null)}>
+                    <Text style={styles.link}>Cancelar</Text>
+                  </Pressable>
+                </View>
+              )}
+            </FadeUp>
+
+            <SectionHead title="Macros por 100g del alimento seleccionado" />
+            {selectedFood ? (
+              <FadeUp index={1} style={styles.card}>
+                <View style={styles.macroGrid}>
+                  <StatRow label="Calorías" value={selectedFood.calories100g} unit="kcal" color={C.brandVivid} index={0} />
+                  <StatRow label="Proteína" value={selectedFood.protein100g} unit="g" color={C.brandVivid} index={1} />
+                  <StatRow label="Carbs" value={selectedFood.carbs100g} unit="g" color={C.amberVivid} index={2} />
+                  <StatRow label="Grasas" value={selectedFood.fat100g} unit="g" color={C.tealVivid} index={3} />
+                  <StatRow label="Fibra" value={selectedFood.fiber100g || 0} unit="g" color={C.tealVivid} index={4} />
+                  <StatRow label="Azúcar" value={selectedFood.sugar100g || 0} unit="g" color={C.coralVivid} index={5} />
+                  <StatRow label="Sodio" value={selectedFood.sodium100g || 0} unit="mg" color={C.coralVivid} index={6} />
+                  <StatRow label="Health Score" value={selectedFood.healthScore} unit="/100" color={C.brandVivid} index={7} />
+                </View>
+                {selectedFood.tags && selectedFood.tags.length > 0 && (
+                  <View style={styles.tagRow}>
+                    {selectedFood.tags.map((t) => (
+                      <Pill key={t} color={C.muted} soft={C.surface2}>{t}</Pill>
+                    ))}
+                  </View>
+                )}
+            </FadeUp>
+            ) : (
+              <EmptyState icon="🔍" title="Busca un alimento" text="Escribe el nombre arriba y pulsa Buscar para ver sus macros y registrarlo." tint={C.brand} />
+            )}
+          </View>
+        )}
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -1773,4 +1946,12 @@ const feed = StyleSheet.create({
 // --- Estilos de la pestaña Mis sesiones (usuario) ---
 const ses = StyleSheet.create({
   kpiRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+});
+
+// --- Estilos de la pestaña Alimentos (usuario) ---
+const alimentos = StyleSheet.create({
+  twoCols: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  macroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
+  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
+  macroRow: { flex: 1, minWidth: 70 },
 });
