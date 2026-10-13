@@ -261,6 +261,9 @@ export default function App() {
   const [sesiones, setSesiones] = useState([]); // videollamadas y lives con el profesional
   const [posts, setPosts] = useState([]);
   const [feedFilter, setFeedFilter] = useState("TODOS");
+  const [payments, setPayments] = useState([]);
+  const [visits, setVisits] = useState([]);
+  const [historialTab, setHistorialTab] = useState("pagos");
 
   // Refresca el "hace Xs" sin recargar datos.
   useEffect(() => {
@@ -491,7 +494,7 @@ export default function App() {
     if (!id) return;
     setRefreshing(true);
     try {
-      const [rec, r, g, m, p, w, posts, ses] = await Promise.all([
+      const [rec, r, g, m, p, w, posts, ses, pay, vis] = await Promise.all([
         api("/api/recipes"),
         api("/api/restaurants"),
         api("/api/gyms"),
@@ -500,6 +503,8 @@ export default function App() {
         api("/api/workouts").catch(() => []),
         api("/api/posts").catch(() => []),
         api("/api/sessions").catch(() => []),
+        api("/api/payments").catch(() => []),
+        api("/api/visits?userId=me").catch(() => []),
       ]);
       setRecipes(rec);
       setRests(r);
@@ -507,6 +512,8 @@ export default function App() {
       setMeals(m);
       setWorkouts(Array.isArray(w) ? w : []);
       setPosts(Array.isArray(posts) ? posts : []);
+      setPayments(Array.isArray(pay) ? pay : []);
+      setVisits(Array.isArray(vis) ? vis : []);
       // Videollamadas y lives con el profesional (la API ya filtra por clientId).
       setSesiones(Array.isArray(ses) ? ses : []);
       // Carta real de cada restaurante (platos con kcal, proteína y precio).
@@ -719,6 +726,17 @@ export default function App() {
     }
   }
 
+  async function removeMeal(id) {
+    try {
+      await api(`/api/meals/${id}`, { method: "DELETE" });
+      setError("");
+      setOk("Comida eliminada.");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   if (!user) {
     return (
       <View style={styles.root}>
@@ -828,7 +846,7 @@ export default function App() {
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
-          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["entrenos", "Entrenos"], ["sesiones", "Mis sesiones"], ["comidas", "Mis comidas"], ["plan", "Membresía"], ["feed", "Para ti"]].map(([t, label]) => (
+          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["entrenos", "Entrenos"], ["sesiones", "Mis sesiones"], ["comidas", "Mis comidas"], ["plan", "Membresía"], ["feed", "Para ti"], ["historial", "Historial"]].map(([t, label]) => (
             <Press
               key={t}
               style={[styles.tab, tab === t && styles.tabOn]}
@@ -1302,6 +1320,9 @@ export default function App() {
                           <Pill color={m.source === "RESTAURANTE" ? C.orange : C.brand} soft={m.source === "RESTAURANTE" ? C.orangeSoft : C.brandSoft}>
                             {m.source === "RESTAURANTE" ? "Local" : "Casa"}
                           </Pill>
+                          <Press onPress={() => removeMeal(m.id)} hitSlop={8} accessibilityLabel="Eliminar comida" style={{ marginLeft: 8 }}>
+                            <Text style={{ color: "#e11d48", fontWeight: "800", fontSize: 12 }}>Eliminar</Text>
+                          </Press>
                         </View>
                       </FadeUp>
                     ))}
@@ -1517,6 +1538,86 @@ export default function App() {
             )}
           </View>
         )}
+
+        {tab === "historial" && (
+          <View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
+              {[["pagos", "Pagos"], ["visitas", "Visitas"]].map(([t, label]) => (
+                <Press
+                  key={t}
+                  style={[styles.tab, historialTab === t && styles.tabOn]}
+                  scale={0.94}
+                  onPress={() => setHistorialTab(t)}
+                >
+                  <Text style={[styles.tabTxt, historialTab === t && styles.tabTxtOn]}>{label}</Text>
+                </Press>
+              ))}
+            </ScrollView>
+            {historialTab === "pagos" && (
+              <View>
+                <SectionHead title="Historial de pagos" count={payments.length} />
+                {payments.length === 0 ? (
+                  <EmptyState
+                    icon="💳"
+                    title="Sin pagos registrados"
+                    text="Tus pagos de membresías y servicios aparecerán aquí automáticamente."
+                  />
+                ) : (
+                  payments.map((p, i) => (
+                    <FadeUp key={p.id} index={i} delay={i * 40}>
+                      <View style={styles.row}>
+                        <View style={[styles.srcIcon, { backgroundColor: C.amberSoft }]}>
+                          <Text style={{ fontSize: 14 }}>💳</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.rowT}>{p.concept || "Pago"}</Text>
+                          <Text style={styles.rowS}>
+                            {p.month ? `Mes: ${p.month}` : ""}{p.createdAt ? ` · ${timeAgo(p.createdAt, now)}` : ""}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={{ fontSize: 15, fontWeight: "800", color: C.text }}>S/ {Number(p.amount || 0).toFixed(2)}</Text>
+                          <Pill color={p.status === "COMPLETADO" ? C.brand : C.amber} soft={p.status === "COMPLETADO" ? C.brandSoft : C.amberSoft}>
+                            {p.status || "Pendiente"}
+                          </Pill>
+                        </View>
+                      </View>
+                    </FadeUp>
+                  ))
+                )}
+              </View>
+            )}
+            {historialTab === "visitas" && (
+              <View>
+                <SectionHead title="Historial de visitas" count={visits.length} />
+                {visits.length === 0 ? (
+                  <EmptyState
+                    icon="🏋️"
+                    title="Sin visitas registradas"
+                    text="Tus check-ins en gimnasios aparecerán aquí."
+                  />
+                ) : (
+                  visits.map((v, i) => (
+                    <FadeUp key={v.id} index={i} delay={i * 40}>
+                      <View style={styles.row}>
+                        <View style={[styles.srcIcon, { backgroundColor: C.tealSoft }]}>
+                          <IconDumbbell size={18} color={C.tealVivid} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.rowT}>{v.gym?.name || v.gymName || "Gimnasio"}</Text>
+                          <Text style={styles.rowS}>
+                            {v.date ? `Fecha: ${new Date(v.date).toLocaleDateString("es-PE")}` : ""}{v.hour ? ` · Hora: ${v.hour}:00` : ""}
+                          </Text>
+                        </View>
+                      </View>
+                    </FadeUp>
+                  ))
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>

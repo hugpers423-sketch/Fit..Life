@@ -59,6 +59,7 @@ const OPEN_GET = new Set([
   "/api/recipes",
   "/api/products",
   "/api/posts",
+  "/api/foods",
 ]);
 
 function bearerToken(req) {
@@ -1191,6 +1192,80 @@ app.delete("/api/restaurants/:id", need("SUPER_ADMIN"), async (req, res) => {
   } catch (error) {
     if (error && error.code === "P2025") return res.status(404).json({ error: "No existe" });
     res.status(500).json({ error: "No se pudo eliminar el restaurante" });
+  }
+});
+
+// ============================================
+// FOODS - Catálogo de alimentos con macros y healthScore
+// ============================================
+app.get("/api/foods", async (req, res) => {
+  const { category, tag, minScore, search, page = "1", limit = "20" } = req.query;
+  try {
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const where = {};
+
+    if (category) {
+      where.category = String(category).toUpperCase();
+    }
+
+    if (tag) {
+      where.tags = { has: String(tag).toUpperCase() };
+    }
+
+    if (minScore) {
+      const score = parseInt(minScore, 10);
+      if (!isNaN(score)) {
+        where.healthScore = { gte: score };
+      }
+    }
+
+    if (search) {
+      const term = String(search).trim().toLowerCase();
+      where.OR = [
+        { name: { contains: term, mode: "insensitive" } },
+        { nameEs: { contains: term, mode: "insensitive" } },
+      ];
+    }
+
+    const [foods, total] = await Promise.all([
+      prisma.food.findMany({
+        where,
+        orderBy: { healthScore: "desc" },
+        skip,
+        take: limitNum,
+      }),
+      prisma.food.count({ where }),
+    ]);
+
+    res.json({
+      data: foods,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    });
+  } catch (error) {
+    console.error("[GET /api/foods] error:", error);
+    res.status(500).json({ error: "No se pudieron obtener los alimentos" });
+  }
+});
+
+app.get("/api/foods/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const food = await prisma.food.findUnique({ where: { id } });
+    if (!food) {
+      return res.status(404).json({ error: "Alimento no encontrado" });
+    }
+    res.json(food);
+  } catch (error) {
+    console.error("[GET /api/foods/:id] error:", error);
+    res.status(500).json({ error: "No se pudo obtener el alimento" });
   }
 });
 
