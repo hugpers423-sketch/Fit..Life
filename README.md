@@ -97,6 +97,24 @@ Portado de las maquetas (`disenos-desktop`: design system + motion system) a Rea
 - **Seed enriquecido** (`prisma/seed.js` + `prisma/seed-recipes.js`): perfiles con IMC, TMB,
   TDEE y objetivos reales de macros, más el menú semanal de 7 recetas con precios.
 
+### Negocios (App Vendedor): dividida por rubro y aislada
+
+Cada negocio tiene su propio usuario y ve **únicamente sus datos**: un restaurante no
+ve gimnasios, productos, platos ni asistencias de otro negocio, y un gimnasio no ve
+restaurantes ni cartas ajenas.
+
+- **`User.businessType`** (`GIMNASIO` | `RESTAURANTE`) se elige una sola vez desde la app
+  (`PATCH /api/users/business-type`) y decide todo el panel. `POST /api/users` exige el rubro
+  al crear un vendedor.
+- **GIMNASIO** → Resumen (logros + accesos rápidos), Ventas (asistencias por mes),
+  Clientes, Mi gimnasio, Productos (con aval nutricional) y Contenido.
+- **RESTAURANTE** → Resumen, Ventas (pedidos por mes y plato más pedido), Clientes,
+  Mi restaurante, Mi menú (platos) y Contenido.
+- **Clientes aislados**: `GET /api/clients` devuelve a un vendedor solo los usuarios que
+  hicieron check-in en su gimnasio o que pidieron platos de su restaurante.
+- Los catálogos públicos (`gyms`, `restaurants`, `dishes`, `products`, `posts`, `visits`)
+  se pueden leer sin token, pero **si llega un token de vendedor se filtran por dueño**.
+
 ### Credenciales demo
 
 ```
