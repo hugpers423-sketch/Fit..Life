@@ -205,8 +205,13 @@ export default function App() {
   const [tab, setTab] = useState("hoy");
   const [recipes, setRecipes] = useState([]);
   const [rests, setRests] = useState([]);
+  const [dishesByRest, setDishesByRest] = useState({}); // restaurantId -> platos de su carta
   const [gyms, setGyms] = useState([]);
   const [meals, setMeals] = useState([]);
+  const [workouts, setWorkouts] = useState([]);
+  const [wType, setWType] = useState("");
+  const [wMin, setWMin] = useState("");
+  const [wKcal, setWKcal] = useState("");
   const [selRecipe, setSelRecipe] = useState(null);
   const [mode, setMode] = useState(null);
   const [zone, setZone] = useState("");
@@ -272,6 +277,32 @@ export default function App() {
       eaten: new Set(meals.map((m) => String(m.name || "").split(" (")[0].trim())),
     };
   }, [meals, todayISO, profile]);
+
+  // ---------------- Semana de entrenos (minutos por día + totales) -------------
+  const wStats = useMemo(() => {
+    const wday = (w) => String(w.date || w.createdAt || "").slice(0, 10);
+    const keys = [];
+    const weekMin = [];
+    for (let i = 6; i >= 0; i--) {
+      const dt = new Date();
+      dt.setDate(dt.getDate() - i);
+      const key = dt.toISOString().slice(0, 10);
+      keys.push(key);
+      weekMin.push(
+        workouts
+          .filter((w) => wday(w) === key)
+          .reduce((a, w) => a + (Number(w.durationMin) || 0), 0)
+      );
+    }
+    return {
+      weekMin,
+      weekMinTotal: weekMin.reduce((a, b) => a + b, 0),
+      weekKcal: workouts
+        .filter((w) => keys.includes(wday(w)))
+        .reduce((a, w) => a + (Number(w.caloriesBurned) || 0), 0),
+      recent: [...workouts].sort((a, b) => String(wday(b)).localeCompare(String(wday(a)))),
+    };
+  }, [workouts]);
 
   // Registros agrupados por día, del más reciente al más antiguo.
   const byDay = useMemo(() => {
@@ -405,17 +436,34 @@ export default function App() {
     if (!id) return;
     setRefreshing(true);
     try {
-      const [rec, r, g, m, p] = await Promise.all([
+      const [rec, r, g, m, p, w] = await Promise.all([
         api("/api/recipes"),
         api("/api/restaurants"),
         api("/api/gyms"),
         api(`/api/meals?userId=${id}`),
         api(`/api/user/profile?userId=${id}`).catch(() => null),
+        api("/api/workouts").catch(() => []),
       ]);
       setRecipes(rec);
       setRests(r);
       setGyms(g);
       setMeals(m);
+      setWorkouts(Array.isArray(w) ? w : []);
+      // Carta real de cada restaurante (platos con kcal, proteína y precio).
+      // Si uno falla, ese restaurante simplemente se queda sin platos.
+      try {
+        const carta = {};
+        await Promise.all(
+          (Array.isArray(r) ? r : []).map((rest) =>
+            api(`/api/dishes?restaurantId=${rest.id}`)
+              .catch(() => [])
+              .then((dis) => { carta[rest.id] = Array.isArray(dis) ? dis : []; })
+          )
+        );
+        setDishesByRest(carta);
+      } catch (e) {
+        setDishesByRest({});
+      }
       if (p) {
         setProfile(p);
         setFWake(p.wakeTime || "");
@@ -570,6 +618,47 @@ export default function App() {
     }
   }
 
+  async function addWorkout() {
+    const type = wType.trim();
+    const min = Number(wMin);
+    if (!type || !wMin.trim() || isNaN(min) || min <= 0) {
+      setError("Indica el tipo de entreno y los minutos.");
+      return;
+    }
+    try {
+      await api("/api/workouts", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: user.id,
+          type,
+          durationMin: Math.round(min),
+          caloriesBurned: Number(wKcal) || 0,
+          date: new Date().toISOString(),
+        }),
+      });
+      setWType("");
+      setWMin("");
+      setWKcal("");
+      setError("");
+      setOk(`Entreno registrado: ${type}, ${Math.round(min)} min. Tu admin lo ve en tu monitoreo.`);
+      celebrarLogro();
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function removeWorkout(id) {
+    try {
+      await api(`/api/workouts/${id}`, { method: "DELETE" });
+      setError("");
+      setOk("Entreno eliminado.");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   if (!user) {
     return (
       <View style={styles.root}>
@@ -679,7 +768,7 @@ export default function App() {
           </Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
-          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["comidas", "Mis comidas"], ["plan", "Membresía"]].map(([t, label]) => (
+          {[["hoy", "Hoy"], ["menu", "Menú"], ["rutina", "Rutina"], ["entrenos", "Entrenos"], ["comidas", "Mis comidas"], ["plan", "Membresía"]].map(([t, label]) => (
             <Press
               key={t}
               style={[styles.tab, tab === t && styles.tabOn]}
@@ -900,6 +989,33 @@ export default function App() {
                 <Text style={styles.rowS}>{r.address}</Text>
                 <Text style={styles.rowS}>Abierto {r.openHour ?? "?"}:00 – {r.closeHour ?? "?"}:00 · {r.service}</Text>
                 <Text style={[styles.rowS, { marginTop: 6 }]}>Pide hoy: <Text style={{ fontWeight: "800" }}>{selRecipe.name}</Text> ({selRecipe.calories ?? 0} kcal)</Text>
+                <Text style={[styles.secT2, { marginTop: 12, marginBottom: 2 }]}>Carta de {r.name}</Text>
+                {(dishesByRest[r.id] || []).length === 0 ? (
+                  <Text style={[styles.muted, { marginTop: 4 }]}>Sin platos cargados</Text>
+                ) : (
+                  (dishesByRest[r.id] || []).map((d) => (
+                    <View key={d.id} style={styles.row}>
+                      <View style={{ flex: 1 }}>
+                        <View style={menu.headRow}>
+                          <Text style={styles.rowT} numberOfLines={2}>{d.name}</Text>
+                          {d.special ? <Pill color={C.amber} soft={C.amberSoft}>ESPECIAL</Pill> : null}
+                        </View>
+                        <Text style={styles.rowS}>
+                          {d.calories ?? 0} kcal · {d.proteinG ?? 0}g proteína
+                          {d.description ? ` · ${d.description}` : ""}
+                        </Text>
+                        <Press
+                          style={[styles.btn, { marginTop: 8, alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 14 }]}
+                          scale={0.95}
+                          onPress={() => logConsumption("RESTAURANTE", d.name, d.calories, d.proteinG, d.id, r.id)}
+                        >
+                          <Text style={styles.btnTxt}>✓ Comí este plato</Text>
+                        </Press>
+                      </View>
+                      <Text style={[styles.price, { marginLeft: 10 }]}>S/ {Number(d.price || 0).toFixed(2)}</Text>
+                    </View>
+                  ))
+                )}
                 <Pressable
                   style={[styles.btn, { marginTop: 10 }]}
                   onPress={() => logConsumption("RESTAURANTE", `${selRecipe.name} (${r.name})`, selRecipe.calories, selRecipe.proteinG, null, r.id)}
@@ -983,6 +1099,82 @@ export default function App() {
                 </View>
               </FadeUp>
             ))}
+          </View>
+        )}
+
+        {tab === "entrenos" && (
+          <View>
+            <SectionHead
+              title="Mis entrenos"
+              count={workouts.length}
+              right={<Pill color={C.teal} soft={C.tealSoft}>Lo ve tu admin</Pill>}
+            />
+            <View style={train.kpiRow}>
+              <KpiCard
+                index={0}
+                icon={<IconDumbbell size={17} color={C.tealVivid} />}
+                value={wStats.weekMinTotal}
+                unit=" min"
+                label="Minutos esta semana"
+                color={C.tealVivid}
+              />
+              <KpiCard
+                index={1}
+                icon={<IconFlame size={17} color={C.orangeVivid} />}
+                value={Math.round(wStats.weekKcal)}
+                unit=" kcal"
+                label="Quemadas esta semana"
+                color={C.orangeVivid}
+              />
+            </View>
+
+            <FadeUp index={2} style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardT}>Tu semana en minutos</Text>
+                <Pill color={C.muted} soft={C.surface2}>7 días</Pill>
+              </View>
+              <Sparkbars data={wStats.weekMin} height={44} color={C.tealVivid} highlight={6} />
+              <View style={train.weekLabels}>
+                {["L", "M", "M", "J", "V", "S", "D"].map((l, i) => (
+                  <Text key={i} style={[train.weekL, i === 6 && { color: C.teal, fontWeight: "900" }]}>{l}</Text>
+                ))}
+              </View>
+            </FadeUp>
+
+            <SectionHead title="Registrar entreno" index={3} />
+            <FadeUp index={4} style={styles.card}>
+              <Text style={styles.rowS}>Anota tu sesión: tipo, duración y calorías estimadas.</Text>
+              <Field label="Tipo de entreno (ej. Pesas, cardio)" value={wType} onChangeText={setWType} placeholder="Pesas" />
+              <Field label="Duración (minutos)" value={wMin} onChangeText={setWMin} placeholder="45" keyboardType="number-pad" />
+              <Field label="Calorías quemadas (kcal)" value={wKcal} onChangeText={setWKcal} placeholder="320" keyboardType="number-pad" />
+              <Press style={[styles.btn, { backgroundColor: C.brand }]} onPress={addWorkout}>
+                <Text style={styles.btnTxt}>Registrar entreno</Text>
+              </Press>
+            </FadeUp>
+
+            <SectionHead title="Entrenos recientes" count={wStats.recent.length} index={5} />
+            {wStats.recent.length === 0 ? (
+              <Text style={styles.muted}>Todavía no registras entrenos. Empieza por el formulario de arriba.</Text>
+            ) : (
+              wStats.recent.slice(0, 20).map((w, i) => (
+                <FadeUp key={w.id} index={i} delay={i * 40}>
+                  <View style={styles.row}>
+                    <View style={[styles.srcIcon, { backgroundColor: C.tealSoft }]}>
+                      <IconDumbbell size={18} color={C.tealVivid} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowT}>{w.type}</Text>
+                      <Text style={styles.rowS}>
+                        {w.durationMin ?? 0} min · {Math.round(Number(w.caloriesBurned) || 0)} kcal · {labelDay(String(w.date || w.createdAt || "").slice(0, 10))}
+                      </Text>
+                    </View>
+                    <Press onPress={() => removeWorkout(w.id)} hitSlop={8} accessibilityLabel="Quitar entreno">
+                      <Text style={train.del}>Quitar</Text>
+                    </Press>
+                  </View>
+                </FadeUp>
+              ))
+            )}
           </View>
         )}
 
@@ -1197,4 +1389,12 @@ const plan = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 9 },
   tick: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   txt: { flex: 1, fontSize: 12.5, color: "#5f7167" },
+});
+
+// --- Estilos de la pestaña Entrenos (usuario) ---
+const train = StyleSheet.create({
+  kpiRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  weekLabels: { flexDirection: "row", gap: 4, marginTop: 6 },
+  weekL: { flex: 1, textAlign: "center", fontSize: 10, color: "#5f7167", fontWeight: "700" },
+  del: { color: "#e11d48", fontWeight: "800", fontSize: 12 },
 });
