@@ -77,8 +77,18 @@ export const D = {
 // Accesibilidad: si el sistema pide menos movimiento, quitamos las animaciones
 // largas (equivalente al `prefers-reduced-motion` de las maquetas).
 let REDUCE = false;
+const reduceListeners = new Set();
 export function setReduceMotion(v) {
   REDUCE = !!v;
+  reduceListeners.forEach((fn) => {
+    try { fn(REDUCE); } catch (e) {}
+  });
+}
+/** Suscribe un callback al cambio de "reducir movimiento" (para los iconos). */
+export function isReduceMotion(fn) {
+  reduceListeners.add(fn);
+  fn(REDUCE);
+  return () => reduceListeners.delete(fn);
 }
 function d(ms) {
   return REDUCE ? 0.001 : ms;
@@ -423,7 +433,7 @@ export function KpiCard({ icon, value = 0, max, unit = "", delta, label, index =
       <View style={[kpi.top, { backgroundColor: col }]} />
       <View style={kpi.row}>
         <View style={[kpi.icon, { backgroundColor: col + "1a" }]}>
-          <Text style={{ fontSize: 15 }}>{icon}</Text>
+          {typeof icon === "string" ? <Text style={{ fontSize: 15 }}>{icon}</Text> : icon}
         </View>
         {delta != null && (
           <Pill color={Number(delta) >= 0 ? C.brand : C.coral} soft={Number(delta) >= 0 ? C.brandSoft : C.coralSoft}>

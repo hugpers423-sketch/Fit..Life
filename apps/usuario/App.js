@@ -33,6 +33,20 @@ import {
   Confetti,
   Pulse,
 } from "./nfui";
+import {
+  IconFlame,
+  IconHeart,
+  IconLeaf,
+  IconTrophy,
+  IconBell,
+  IconDrop,
+  IconDumbbell,
+  IconScan,
+  IconSparkle,
+  IconOrb,
+  IconWave,
+  IconCheck,
+} from "./nf-icons";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 let API_URL = "http://192.168.18.167:3001";
@@ -717,8 +731,12 @@ export default function App() {
             </FadeUp>
 
             <View style={today.kpiRow}>
-              <KpiCard index={5} icon="🍽️" value={stats.todayCount} max={4} label="Comidas de hoy" color={C.brandVivid} />
-              <KpiCard index={6} icon="⚖️" value={imc ?? 0} label={imcTag || "IMC"} color={imcColor}
+              <KpiCard index={5} icon={<IconFlame size={17} />} value={stats.streak} label={stats.streak === 1 ? "Día de racha" : "Días de racha"} color={C.orangeVivid} />
+              <KpiCard index={6} icon={<IconDrop size={17} color={C.infoVivid} />} value={stats.todayCount} max={4} label="Comidas de hoy" color={C.infoVivid} />
+            </View>
+            <View style={today.kpiRow}>
+              <KpiCard index={7} icon={<IconDumbbell size={17} color={C.tealVivid} />} value={Math.round(stats.protein)} max={goalProtein} label="Proteína de hoy" color={C.tealVivid} />
+              <KpiCard index={8} icon={<IconSparkle size={17} color={C.amberVivid} />} value={imc ?? 0} label={imcTag || "IMC"} color={imcColor}
                 format={() => (imc == null ? "—" : imc.toFixed(1))} />
             </View>
 

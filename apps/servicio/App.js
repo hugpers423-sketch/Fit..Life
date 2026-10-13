@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars, ProgressBar, Confetti } from "./nfui";
+import { IconRun, IconLeaf, IconFlame, IconDumbbell, IconCheck, IconBell } from "./nf-icons";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 let API_URL = "http://192.168.18.167:3001";
@@ -658,16 +659,16 @@ export default function App() {
   // Logros del negocio (hitos simples y visibles).
   const logros = esGym
     ? [
-        { t: "Primer cliente", ok: clients.length >= 1, icon: "👤" },
-        { t: "10 clientes", ok: clients.length >= 10, icon: "👥" },
-        { t: "50 asistencias", ok: visitas.length >= 50, icon: "🔥" },
-        { t: "Producto avalado", ok: avalados >= 1, icon: "✅" },
+        { t: "Primer cliente", ok: clients.length >= 1, icon: <IconRun size={20} color={colorBizInk} /> },
+        { t: "10 clientes", ok: clients.length >= 10, icon: <IconRun size={20} color={colorBizInk} /> },
+        { t: "50 asistencias", ok: visitas.length >= 50, icon: <IconFlame size={20} color={C.coralVivid} /> },
+        { t: "Producto avalado", ok: avalados >= 1, icon: <IconCheck size={20} color={C.coralVivid} /> },
       ]
     : [
-        { t: "Primer cliente", ok: clients.length >= 1, icon: "👤" },
-        { t: "5 platos en el menú", ok: dishes.length >= 5, icon: "🍽️" },
-        { t: "25 pedidos", ok: ventas.length >= 25, icon: "📦" },
-        { t: "Primera publicación", ok: posts.length >= 1, icon: "📣" },
+        { t: "Primer cliente", ok: clients.length >= 1, icon: <IconRun size={20} color={colorBizInk} /> },
+        { t: "5 platos en el menú", ok: dishes.length >= 5, icon: <IconLeaf size={20} color={C.amberVivid} /> },
+        { t: "25 pedidos", ok: ventas.length >= 25, icon: <IconLeaf size={20} color={C.amberVivid} /> },
+        { t: "Primera publicación", ok: posts.length >= 1, icon: <IconBell size={20} color={C.amberVivid} /> },
       ];
   const logrosOk = logros.filter((l) => l.ok).length;
 
@@ -694,10 +695,10 @@ export default function App() {
         </View>
 
         <View style={styles.kpiRow}>
-          <KpiCard index={0} icon="👥" value={clients.length} label="Mis clientes" color={colorBiz} />
+          <KpiCard index={0} icon={<IconRun size={17} color={colorBiz} />} value={clients.length} label="Mis clientes" color={colorBiz} />
           <KpiCard
             index={1}
-            icon={esRest ? "📦" : "🔥"}
+            icon={esRest ? <IconLeaf size={17} color={C.brandVivid} /> : <IconFlame size={17} color={C.brandVivid} />}
             value={delMes}
             label={esRest ? "Pedidos del mes" : "Asistencias del mes"}
             color={C.brandVivid}
@@ -706,14 +707,14 @@ export default function App() {
         <View style={styles.kpiRow}>
           <KpiCard
             index={2}
-            icon={esRest ? "🍽️" : "🛍️"}
+            icon={esRest ? <IconLeaf size={17} color={C.amberVivid} /> : <IconDumbbell size={17} color={C.amberVivid} />}
             value={esRest ? dishes.length : products.length}
             label={esRest ? "Platos en menú" : "Mis productos"}
             color={C.amberVivid}
           />
           <KpiCard
             index={3}
-            icon={esRest ? "📈" : "✅"}
+            icon={esRest ? <IconFlame size={17} color={C.coralVivid} /> : <IconCheck size={17} color={C.coralVivid} />}
             value={esRest ? kcalVendidas : avalados}
             label={esRest ? "Kcal vendidas" : "Productos avalados"}
             color={C.coralVivid}
@@ -763,26 +764,26 @@ export default function App() {
             <SectionHead title="Accesos rápidos" />
             <View style={styles.quickRow}>
               <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab("negocio")}>
-                <Text style={{ fontSize: 22 }}>{esRest ? "🍽️" : "🏋️"}</Text>
+                {esRest ? <IconLeaf size={22} color={colorBizInk} /> : <IconDumbbell size={22} color={colorBizInk} />}
                 <Text style={styles.quickT}>{esRest ? "Mi restaurante" : "Mi gimnasio"}</Text>
               </Press>
               <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab(esRest ? "menu" : "productos")}>
-                <Text style={{ fontSize: 22 }}>{esRest ? "📋" : "🛍️"}</Text>
+                {esRest ? <IconLeaf size={22} color={colorBizInk} /> : <IconDumbbell size={22} color={colorBizInk} />}
                 <Text style={styles.quickT}>{esRest ? "Mi menú" : "Productos"}</Text>
               </Press>
               <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab("ventas")}>
-                <Text style={{ fontSize: 22 }}>📈</Text>
+                <IconFlame size={22} color={colorBizInk} />
                 <Text style={styles.quickT}>Ventas</Text>
               </Press>
               <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab("contenido")}>
-                <Text style={{ fontSize: 22 }}>📣</Text>
+                <IconBell size={22} color={colorBizInk} />
                 <Text style={styles.quickT}>Contenido</Text>
               </Press>
             </View>
 
             {esGym && !myGym && (
               <EmptyState
-                icon="🏋️"
+                icon={<IconDumbbell size={30} color={colorBizInk} />}
                 title="Registra tu gimnasio"
                 text="Carga nombre, dirección, horario y servicio. Tus clientes te verán en su app."
                 cta="Registrar gimnasio"
@@ -792,7 +793,7 @@ export default function App() {
             )}
             {esRest && !myRest && (
               <EmptyState
-                icon="🍽️"
+                icon={<IconLeaf size={30} color={colorBizInk} />}
                 title="Registra tu restaurante"
                 text="Carga tu carta y horarios. Tus clientes pedirán desde su app."
                 cta="Registrar restaurante"
@@ -829,7 +830,7 @@ export default function App() {
             <SectionHead title={esRest ? "Últimos pedidos" : "Últimas asistencias"} count={movimientos.length} />
             {movimientos.length === 0 && (
               <EmptyState
-                icon={esRest ? "📦" : "🔥"}
+                icon={esRest ? <IconLeaf size={30} color={C.brand} /> : <IconFlame size={30} color={C.brand} />}
                 title={esRest ? "Sin pedidos todavía" : "Sin asistencias todavía"}
                 text={esRest ? "Cuando tus clientes registren un plato tuyo, aparecerá aquí." : "Cuando tus clientes hagan check-in en tu gimnasio, aparecerá aquí."}
               />
@@ -838,7 +839,7 @@ export default function App() {
               <FadeUp key={m.id} index={i} delay={i * 35}>
                 <View style={styles.row}>
                   <View style={[styles.rowIcon, { backgroundColor: colorBizSoft }]}>
-                    <Text style={{ fontSize: 14 }}>{esRest ? "🍽️" : "🔥"}</Text>
+                    {esRest ? <IconLeaf size={14} color={colorBizInk} /> : <IconFlame size={14} color={colorBizInk} />}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rowT} numberOfLines={1}>{esRest ? (m.name || m.type) : (m.user?.name || "Cliente")}</Text>
@@ -859,7 +860,7 @@ export default function App() {
             <SectionHead title="Mis clientes" count={clients.length} />
             {clients.length === 0 && (
               <EmptyState
-                icon="👥"
+                icon={<IconRun size={30} color={colorBizInk} />}
                 title="Sin clientes todavía"
                 text={esRest
                   ? "Cuando un usuario pida un plato de tu restaurante, se volverá tu cliente."
@@ -941,7 +942,7 @@ export default function App() {
             <SectionHead title="Mis productos" count={products.length} />
             {!myGym && (
               <EmptyState
-                icon="🛍️"
+                icon={<IconDumbbell size={30} color={colorBizInk} />}
                 title="Primero registra tu gimnasio"
                 text="Los productos se cuelgan de tu gimnasio y necesitan el aval de un nutricionista."
                 cta="Registrar gimnasio"
@@ -983,7 +984,7 @@ export default function App() {
             <SectionHead title="Mi menú" count={dishes.length} />
             {!myRest && (
               <EmptyState
-                icon="📋"
+                icon={<IconLeaf size={30} color={colorBizInk} />}
                 title="Primero registra tu restaurante"
                 text="Los platos se cuelgan de tu restaurante y es lo que verán tus clientes."
                 cta="Registrar restaurante"

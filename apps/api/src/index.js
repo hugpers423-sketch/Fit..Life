@@ -665,6 +665,62 @@ app.patch("/api/users/business-type", need("VENDEDOR", "SUPER_ADMIN"), async (re
   }
 });
 
+// Edición de la ficha de un gimnasio: SOLO su dueño (o el admin).
+app.patch("/api/gyms/:id", need("VENDEDOR", "SUPER_ADMIN"), async (req, res) => {
+  const { name, address, service, videoUrl, openHour, closeHour, lat, lng } = req.body || {};
+  try {
+    const gym = await prisma.gym.findUnique({ where: { id: req.params.id }, select: { ownerId: true } });
+    if (!gym) return res.status(404).json({ error: "Gimnasio no encontrado" });
+    if (req.authUser.role !== "SUPER_ADMIN" && gym.ownerId !== req.authUser.id) {
+      return res.status(403).json({ error: "Ese gimnasio no es tuyo" });
+    }
+    const updated = await prisma.gym.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name != null ? { name: String(name).trim() } : {}),
+        ...(address != null ? { address: String(address).trim() } : {}),
+        ...(service != null ? { service: String(service).trim() } : {}),
+        ...(videoUrl !== undefined ? { videoUrl: videoUrl ? String(videoUrl).trim() : null } : {}),
+        ...(openHour !== undefined ? { openHour: openHour === "" || openHour == null ? null : Number(openHour) } : {}),
+        ...(closeHour !== undefined ? { closeHour: closeHour === "" || closeHour == null ? null : Number(closeHour) } : {}),
+        ...(lat !== undefined ? { lat: lat == null || lat === "" ? null : Number(lat) } : {}),
+        ...(lng !== undefined ? { lng: lng == null || lng === "" ? null : Number(lng) } : {}),
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo actualizar el gimnasio" });
+  }
+});
+
+// Edición de la ficha de un restaurante: SOLO su dueño (o el admin).
+app.patch("/api/restaurants/:id", need("VENDEDOR", "SUPER_ADMIN"), async (req, res) => {
+  const { name, address, service, videoUrl, openHour, closeHour, lat, lng } = req.body || {};
+  try {
+    const rest = await prisma.restaurant.findUnique({ where: { id: req.params.id }, select: { ownerId: true } });
+    if (!rest) return res.status(404).json({ error: "Restaurante no encontrado" });
+    if (req.authUser.role !== "SUPER_ADMIN" && rest.ownerId !== req.authUser.id) {
+      return res.status(403).json({ error: "Ese restaurante no es tuyo" });
+    }
+    const updated = await prisma.restaurant.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name != null ? { name: String(name).trim() } : {}),
+        ...(address != null ? { address: String(address).trim() } : {}),
+        ...(service != null ? { service: String(service).trim() } : {}),
+        ...(videoUrl !== undefined ? { videoUrl: videoUrl ? String(videoUrl).trim() : null } : {}),
+        ...(openHour !== undefined ? { openHour: openHour === "" || openHour == null ? null : Number(openHour) } : {}),
+        ...(closeHour !== undefined ? { closeHour: closeHour === "" || closeHour == null ? null : Number(closeHour) } : {}),
+        ...(lat !== undefined ? { lat: lat == null || lat === "" ? null : Number(lat) } : {}),
+        ...(lng !== undefined ? { lng: lng == null || lng === "" ? null : Number(lng) } : {}),
+      },
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo actualizar el restaurante" });
+  }
+});
+
 // GET all meals stats - Solo SUPER_ADMIN
 app.get("/api/admin/stats/meals", need("SUPER_ADMIN", "ORIENTADOR"), async (req, res) => {
   try {
@@ -767,6 +823,33 @@ app.delete("/api/posts/:id", async (req, res) => {
 app.get("/api/sessions", async (req, res) => {
   const { professionalId, clientId } = req.query;
   try {
+    const me = req.authUser;
+    // Un USUARIO solo ve sus propias sesiones (las que pagó con PREMIUM).
+    if (me && me.role === "USUARIO" && !clientId) {
+      const mias = await prisma.session.findMany({
+        where: { clientId: me.id },
+        include: {
+          professional: { select: { id: true, name: true, specialty: true } },
+          client: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      return res.json(mias);
+    }
+    // Un profesional solo ve las sesiones que él creó.
+    if (me && me.role === "ORIENTADOR" && !professionalId) {
+      const mias = await prisma.session.findMany({
+        where: { professionalId: me.id },
+        include: {
+          professional: { select: { id: true, name: true } },
+          client: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      return res.json(mias);
+    }
     const sessions = await prisma.session.findMany({
       where: {
         ...(professionalId ? { professionalId: String(professionalId) } : {}),

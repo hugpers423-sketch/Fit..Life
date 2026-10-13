@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars } from "./nfui";
+import { IconRun, IconTrophy, IconBell, IconLeaf } from "./nf-icons";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 let API_URL = "http://192.168.18.167:3001";
@@ -499,12 +500,12 @@ export default function App() {
           </Pressable>
         </View>
         <View style={styles.kpiRow}>
-          <KpiCard index={0} icon="👥" value={clients.length} label="Clientes" color={C.tealVivid} />
-          <KpiCard index={1} icon="💰" value={monthTotal} label="Ingresos del mes" color={C.amberVivid} format={(n) => `S/ ${Math.round(n)}`} />
+          <KpiCard index={0} icon={<IconRun size={17} color={C.tealVivid} />} value={clients.length} label="Clientes" color={C.tealVivid} />
+          <KpiCard index={1} icon={<IconTrophy size={17} color={C.amberVivid} />} value={monthTotal} label="Ingresos del mes" color={C.amberVivid} format={(n) => `S/ ${Math.round(n)}`} />
         </View>
         <View style={styles.kpiRow}>
-          <KpiCard index={2} icon="📞" value={sessionsToday.length} label="Sesiones de hoy" color={C.brandVivid} />
-          <KpiCard index={3} icon="📝" value={registros} label="Registros recibidos" color={C.coralVivid} />
+          <KpiCard index={2} icon={<IconBell size={17} color={C.brandVivid} />} value={sessionsToday.length} label="Sesiones de hoy" color={C.brandVivid} />
+          <KpiCard index={3} icon={<IconLeaf size={17} color={C.coralVivid} />} value={registros} label="Registros recibidos" color={C.coralVivid} />
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
           {TABS.map(([t, label]) => (
