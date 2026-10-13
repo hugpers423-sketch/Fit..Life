@@ -101,7 +101,8 @@ Portado de las maquetas (`disenos-desktop`: design system + motion system) a Rea
 
 ```
 super_admin@nutriflow.com / password123   (SUPER_ADMIN)
-vendedor@nutriflow.com    / 123456        (VENDEDOR)
+vendedor@nutriflow.com    / 123456        (VENDEDOR · GIMNASIO "Olimpo")
+restaurante@nutriflow.com / restaurante1  (VENDEDOR · RESTAURANTE "Sabor Verde")
 usuario@nutriflow.com     / password123   (USUARIO)
 orientador@nutriflow.com  / orientador1   (ORIENTADOR)
 quiosk@nutriflow.com      / kiosk123      (QUIOSK)

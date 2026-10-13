@@ -12,6 +12,22 @@ async function main() {
   const vendedor = await prisma.user.findUnique({ where: { email: "vendedor@nutriflow.com" } });
   if (!usuario || !orientador || !vendedor) throw new Error("Faltan usuarios base. Corre seed.js primero.");
 
+  // Cada negocio tiene su propio usuario: el vendedor demo es GIMNASIO y se
+  // crea uno aparte para el RESTAURANTE, para que ninguno vea lo del otro.
+  const { hashPassword } = require("../apps/api/src/auth");
+  const restVendor = await prisma.user.upsert({
+    where: { email: "restaurante@nutriflow.com" },
+    update: { role: "VENDEDOR", businessType: "RESTAURANTE" },
+    create: {
+      email: "restaurante@nutriflow.com",
+      name: "RESTAURANTE NutriFlow",
+      role: "VENDEDOR",
+      businessType: "RESTAURANTE",
+      passwordHash: hashPassword("restaurante1"),
+    },
+  });
+  await prisma.user.update({ where: { id: vendedor.id }, data: { businessType: "GIMNASIO" } });
+
   // Membresía premium + rutina del cliente
   await prisma.user.update({ where: { id: usuario.id }, data: { membership: "PREMIUM" } });
   await prisma.profile.upsert({
@@ -49,20 +65,23 @@ async function main() {
     console.log("✅ 3 entrenos demo");
   }
 
-  // Gimnasio del vendedor con horario y video
+  // Gimnasio del vendedor (GIMNASIO) con horario y video
   let gym = await prisma.gym.findFirst({ where: { ownerId: vendedor.id } });
   if (!gym) {
     gym = await prisma.gym.create({
-      data: { ownerId: vendedor.id, name: "Gimnasio Central", address: "Av. Principal 123, Miraflores", service: "Musculación y funcional", videoUrl: "https://www.youtube.com/results?search_query=gimnasio+tour", openHour: 6, closeHour: 22 },
+      data: { ownerId: vendedor.id, name: "Gimnasio Olimpo", address: "Av. Principal 123, Miraflores", service: "Musculación y funcional", videoUrl: "https://www.youtube.com/results?search_query=gimnasio+tour", openHour: 6, closeHour: 22 },
     });
     console.log("✅ Gimnasio demo");
+  } else {
+    // Asegura que el gimnasio sea solo del vendedor GIMNASIO.
+    await prisma.gym.update({ where: { id: gym.id }, data: { ownerId: vendedor.id, name: "Gimnasio Olimpo" } });
   }
 
-  // Restaurante con platos y horario
-  let rest = await prisma.restaurant.findFirst({ where: { ownerId: vendedor.id } });
+  // Restaurante del vendedor RESTAURANTE (aislado del gimnasio)
+  let rest = await prisma.restaurant.findFirst({ where: { ownerId: restVendor.id } });
   if (!rest) {
     rest = await prisma.restaurant.create({
-      data: { ownerId: vendedor.id, name: "Sabor Verde", address: "Calle Salud 456, Miraflores", service: "Bowls y ensaladas", videoUrl: "https://www.youtube.com/results?search_query=restaurante+saludable", openHour: 8, closeHour: 22 },
+      data: { ownerId: restVendor.id, name: "Sabor Verde", address: "Calle Salud 456, Miraflores", service: "Bowls y ensaladas", videoUrl: "https://www.youtube.com/results?search_query=restaurante+saludable", openHour: 8, closeHour: 22 },
     });
     const dishes = [
       ["Bowl proteico", 320, 28, 18.0, 1, true],
@@ -73,6 +92,21 @@ async function main() {
       await prisma.dish.create({ data: { restaurantId: rest.id, name, calories, proteinG, price, day, special } });
     }
     console.log("✅ Restaurante + 3 platos demo");
+  }
+
+  // Vincula las comidas de restaurante al restaurante: así el negocio ve a SUS
+  // clientes y sus pedidos (sin esto aparecería sin clientes).
+  await prisma.meal.updateMany({
+    where: { userId: usuario.id, source: "RESTAURANTE", restaurantId: null },
+    data: { restaurantId: rest.id },
+  });
+
+  // Check-ins del cliente en el gimnasio: son las ventas del gimnasio.
+  if ((await prisma.visit.count({ where: { gymId: gym.id, userId: usuario.id } })) === 0) {
+    for (let i = 0; i < 4; i++) {
+      await prisma.visit.create({ data: { userId: usuario.id, gymId: gym.id, hour: 7 + i, date: dayISO(4 - i) } });
+    }
+    console.log("✅ 4 check-ins demo del gimnasio");
   }
 
   // Producto con aval nutricional

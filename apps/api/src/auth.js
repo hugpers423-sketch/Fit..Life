@@ -75,6 +75,7 @@ function publicUser(user) {
     role: user.role,
     specialty: user.specialty ?? null,
     membership: user.membership ?? null,
+    businessType: user.businessType ?? null,
   };
 }
 

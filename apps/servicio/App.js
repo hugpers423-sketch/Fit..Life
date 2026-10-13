@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,7 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars, ProgressBar } from "./nfui";
+import { C, useReduceMotion, FadeUp, Press, Pill, KpiCard, SectionHead, EmptyState, Sparkbars, ProgressBar, Confetti } from "./nfui";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 let API_URL = "http://192.168.18.167:3001";
@@ -134,6 +135,29 @@ function timeAgo(d, now) {
   return `hace ${Math.floor(s / 3600)} h`;
 }
 
+// ============================================================================
+//  App Vendedor (Negocio) — NutriFlow
+//  DIVIDIDA POR TIPO DE NEGOCIO: GIMNASIO o RESTAURANTE.
+//  Cada negocio ve y gestiona SOLO sus datos: nunca los de otro negocio.
+//  Tabs: Resumen · Ventas · Clientes · Mi negocio · producto/menú · Contenido
+// ============================================================================
+const TABS_GYM = [
+  ["resumen", "Resumen"],
+  ["ventas", "Ventas"],
+  ["clientes", "Clientes"],
+  ["negocio", "Mi gimnasio"],
+  ["productos", "Productos"],
+  ["contenido", "Contenido"],
+];
+const TABS_REST = [
+  ["resumen", "Resumen"],
+  ["ventas", "Ventas"],
+  ["clientes", "Clientes"],
+  ["negocio", "Mi restaurante"],
+  ["menu", "Mi menú"],
+  ["contenido", "Contenido"],
+];
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState("vendedor@nutriflow.com");
@@ -141,57 +165,67 @@ export default function App() {
   const [mode, setMode] = useState("login"); // login | forgot | reset
   const [newPass, setNewPass] = useState("");
   const [resetToken, setResetToken] = useState("");
-  const [tab, setTab] = useState("clientes");
-  const [clients, setClients] = useState([]);
-  const [gyms, setGyms] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
+  const [tab, setTab] = useState("resumen");
   const [syncAt, setSyncAt] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [celebrar, setCelebrar] = useState(false);
+
+  // Datos del negocio (siempre filtrados por dueño en la API).
+  const [clients, setClients] = useState([]);
+  const [myGym, setMyGym] = useState(null);
+  const [myRest, setMyRest] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [dishes, setDishes] = useState([]);
+  const [ventas, setVentas] = useState([]);   // comidas del restaurante
+  const [visitas, setVisitas] = useState([]); // asistencias del gimnasio
+  const [posts, setPosts] = useState([]);
+
+  // Formularios del negocio.
+  const [bName, setBName] = useState("");
+  const [bAddress, setBAddress] = useState("");
+  const [bService, setBService] = useState("");
+  const [bVideo, setBVideo] = useState("");
+  const [bOpen, setBOpen] = useState("");
+  const [bClose, setBClose] = useState("");
+  const [pName, setPName] = useState("");
+  const [pBrand, setPBrand] = useState("");
+  const [dName, setDName] = useState("");
+  const [dCal, setDCal] = useState("");
+  const [dProt, setDProt] = useState("");
+  const [dPrice, setDPrice] = useState("");
+  const [dDay, setDDay] = useState("");
+  const [pTitulo, setPTitulo] = useState("");
+  const [pKind, setPKind] = useState("TIP");
+  const [pTexto, setPTexto] = useState("");
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
   useReduceMotion();
-  const [gName, setGName] = useState("");
-  const [gAddress, setGAddress] = useState("");
-  const [gService, setGService] = useState("");
-  const [gVideo, setGVideo] = useState("");
-  const [gOpen, setGOpen] = useState("");
-  const [gClose, setGClose] = useState("");
-  const [rests, setRests] = useState([]);
-  const [rName, setRName] = useState("");
-  const [rAddress, setRAddress] = useState("");
-  const [rService, setRService] = useState("");
-  const [rVideo, setRVideo] = useState("");
-  const [rOpen, setROpen] = useState("");
-  const [rClose, setRClose] = useState("");
-  const [dishes, setDishes] = useState([]);
-  const [dRest, setDRest] = useState("");
-  const [dName, setDName] = useState("");
-  const [dPrice, setDPrice] = useState("");
-  const [dKcal, setDKcal] = useState("");
-  const [dProt, setDProt] = useState("");
-  const [dDay, setDDay] = useState("");
-  const [dSpecial, setDSpecial] = useState(false);
-  const [posts, setPosts] = useState([]);
-  const [lives, setLives] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [pTitle, setPTitle] = useState("");
-  const [pKind, setPKind] = useState("REEL");
-  const [pMedia, setPMedia] = useState("");
-  const [pDesc, setPDesc] = useState("");
-  const [lTopic, setLTopic] = useState("");
-  const [prGym, setPrGym] = useState("");
-  const [prName, setPrName] = useState("");
-  const [prBrand, setPrBrand] = useState("");
 
+  const biz = user?.businessType || null;
+  const esGym = biz === "GIMNASIO";
+  const esRest = biz === "RESTAURANTE";
+  const TABS = esRest ? TABS_REST : TABS_GYM;
+  const colorBiz = esRest ? C.coralVivid : C.tealVivid;
+  const colorBizSoft = esRest ? C.coralSoft : C.tealSoft;
+  const colorBizInk = esRest ? C.coral : C.teal;
+
+  function celebrarLogro() {
+    setCelebrar(true);
+    setTimeout(() => setCelebrar(false), 1000);
+  }
+
+  // ------------------------------------------------------------------ auth ---
   async function login() {
     setLoading(true);
     setError("");
+    setOk("");
     try {
       const data = await api("/api/auth/login", {
         method: "POST",
@@ -199,6 +233,7 @@ export default function App() {
       });
       await persistSession(data);
       setUser(data.user);
+      setTab("resumen");
     } catch (e) {
       setError(e.message);
     } finally {
@@ -260,31 +295,69 @@ export default function App() {
     setError("");
   }
 
-  async function load(uid) {
-    const id = uid || (user && user.id);
-    if (!id) return;
+  // El negocio se elige una sola vez y ya no se mezcla con el otro tipo.
+  async function elegirNegocio(tipo) {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api("/api/users/business-type", {
+        method: "PATCH",
+        body: JSON.stringify({ businessType: tipo }),
+      });
+      setUser(data.user);
+      await storeSet("nf_user", JSON.stringify(data.user || null));
+      setOk(`Listo: tu panel es de ${tipo === "GIMNASIO" ? "gimnasio" : "restaurante"}. Solo verás tus datos.`);
+      celebrarLogro();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ------------------------------------------------------------------ datos --
+  async function load() {
+    if (!user?.id) return;
     setRefreshing(true);
     try {
-      const [u, g, r, p, s, pr] = await Promise.all([
-        api(`/api/clients`),
-        api(`/api/gyms?ownerId=${id}`),
-        api(`/api/restaurants?ownerId=${id}`),
-        api(`/api/posts?authorId=${id}`),
-        api(`/api/sessions?professionalId=${id}`),
-        api(`/api/products`),
-      ]);
-      setClients(u.filter((x) => x.role === "USUARIO"));
-      setGyms(g);
-      setRests(r);
-      try {
-        const all = await Promise.all(r.map((x) => api(`/api/dishes?restaurantId=${x.id}`)));
-        setDishes(all.flat());
-      } catch {
-        setDishes([]);
+      const base = [`/api/clients`, `/api/posts?authorId=${user.id}`];
+      if (esRest) {
+        const rest = await api(`/api/restaurants?ownerId=${user.id}`).catch(() => []);
+        const mio = Array.isArray(rest) && rest.length ? rest[0] : null;
+        setMyRest(mio);
+        if (mio) {
+          const [dis, ven] = await Promise.all([
+            api(`/api/dishes?restaurantId=${mio.id}`).catch(() => []),
+            api(`/api/meals?restaurantId=${mio.id}`).catch(() => []),
+          ]);
+          setDishes(Array.isArray(dis) ? dis : []);
+          setVentas(Array.isArray(ven) ? ven : []);
+        } else {
+          setDishes([]);
+          setVentas([]);
+        }
+      } else {
+        const gym = await api(`/api/gyms?ownerId=${user.id}`).catch(() => []);
+        const mio = Array.isArray(gym) && gym.length ? gym[0] : null;
+        setMyGym(mio);
+        if (mio) {
+          const [prod, vis] = await Promise.all([
+            api(`/api/products?gymId=${mio.id}`).catch(() => []),
+            api(`/api/visits?gymId=${mio.id}`).catch(() => []),
+          ]);
+          setProducts(Array.isArray(prod) ? prod : []);
+          setVisitas(Array.isArray(vis) ? vis : []);
+        } else {
+          setProducts([]);
+          setVisitas([]);
+        }
       }
-      setPosts(p);
-      setLives(s.filter((x) => x.type === "LIVE"));
-      setProducts(pr.filter((x) => g.some((gym) => gym.id === x.gymId)));
+      const [cl, po] = await Promise.all([
+        api(base[0]).catch(() => []),
+        api(base[1]).catch(() => []),
+      ]);
+      setClients(Array.isArray(cl) ? cl : []);
+      setPosts(Array.isArray(po) ? po : []);
       setError("");
       setSyncAt(new Date());
     } catch (e) {
@@ -294,7 +367,7 @@ export default function App() {
     }
   }
 
-  // Restaura la sesión guardada al abrir la app (valida y renueva el token).
+  // Restaura la sesión guardada al abrir la app.
   useEffect(() => {
     (async () => {
       const t = await storeGet("nf_token");
@@ -317,12 +390,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (user) load(user.id);
-  }, [user]);
+    if (user && biz) load();
+  }, [user, biz]);
 
-  // SINCRONIZACIÓN EN TIEMPO REAL (silenciosa)
+  // Sincronización silenciosa.
   useEffect(() => {
-    if (!user) return;
+    if (!user || !biz) return;
     let ultimaV = null;
     let vivo = true;
     const id = setInterval(async () => {
@@ -334,204 +407,153 @@ export default function App() {
         if (ultimaV === null) { ultimaV = data.v; return; }
         if (data.v !== ultimaV) {
           ultimaV = data.v;
-          if (vivo) load(user.id);
+          if (vivo) load();
         }
       } catch { /* sin conexión */ }
     }, 3000);
     return () => { vivo = false; clearInterval(id); };
-  }, [user]);
+  }, [user, biz]);
 
-  async function addGym() {
-    if (!gName.trim() || !gAddress.trim() || !gService.trim()) {
+// CONTINUA-SERVICIO-PARTE-2
+
+  // ------------------------------------------------------- acciones negocio --
+  async function guardarNegocio() {
+    if (!bName.trim() || !bAddress.trim() || !bService.trim()) {
       setError("Nombre, dirección y servicio son obligatorios.");
       return;
     }
+    setLoading(true);
+    setError("");
+    setOk("");
     try {
-      await api("/api/gyms", {
-        method: "POST",
-        body: JSON.stringify({
-          ownerId: user.id,
-          name: gName.trim(),
-          address: gAddress.trim(),
-          service: gService.trim(),
-          videoUrl: gVideo.trim() || null,
-          openHour: gOpen === "" ? null : Number(gOpen),
-          closeHour: gClose === "" ? null : Number(gClose),
-        }),
-      });
-      setOk(`Gimnasio registrado: ${gName.trim()}`);
-      setGName("");
-      setGAddress("");
-      setGService("");
-      setGVideo("");
-      load();
+      const body = {
+        ownerId: user.id,
+        name: bName.trim(),
+        address: bAddress.trim(),
+        service: bService.trim(),
+        videoUrl: bVideo.trim() || null,
+        openHour: bOpen === "" ? null : Number(bOpen),
+        closeHour: bClose === "" ? null : Number(bClose),
+      };
+      if (esRest) {
+        if (myRest) {
+          await api(`/api/restaurants/${myRest.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        } else {
+          await api("/api/restaurants", { method: "POST", body: JSON.stringify(body) });
+        }
+        setOk("Restaurante guardado. Tus clientes lo verán en su app.");
+      } else {
+        if (myGym) {
+          await api(`/api/gyms/${myGym.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        } else {
+          await api("/api/gyms", { method: "POST", body: JSON.stringify(body) });
+        }
+        setOk("Gimnasio guardado. Tus clientes lo verán en su app.");
+      }
+      celebrarLogro();
+      await load();
     } catch (e) {
       setError(e.message);
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function addRestaurant() {
-    if (!rName.trim() || !rAddress.trim() || !rService.trim()) {
-      setError("Nombre, dirección y servicio son obligatorios.");
-      return;
-    }
-    try {
-      await api("/api/restaurants", {
-        method: "POST",
-        body: JSON.stringify({
-          ownerId: user.id,
-          name: rName.trim(),
-          address: rAddress.trim(),
-          service: rService.trim(),
-          videoUrl: rVideo.trim() || null,
-          openHour: rOpen === "" ? null : Number(rOpen),
-          closeHour: rClose === "" ? null : Number(rClose),
-        }),
-      });
-      setOk(`Restaurante registrado: ${rName.trim()}`);
-      setRName("");
-      setRAddress("");
-      setRService("");
-      setRVideo("");
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  async function publish() {
-    if (!pTitle.trim()) {
-      setError("El título es obligatorio.");
-      return;
-    }
-    try {
-      await api("/api/posts", {
-        method: "POST",
-        body: JSON.stringify({ authorId: user.id, kind: pKind, title: pTitle.trim(), mediaUrl: pMedia.trim() || null }),
-      });
-      setOk(`${pKind === "REEL" ? "Reel" : pKind === "SERVICIO" ? "Servicio" : "Publicación"} publicada.`);
-      setPTitle("");
-      setPMedia("");
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  async function goLive() {
-    if (!lTopic.trim()) {
-      setError("El tema del live es obligatorio.");
-      return;
-    }
-    try {
-      const s = await api("/api/sessions", {
-        method: "POST",
-        body: JSON.stringify({ professionalId: user.id, type: "LIVE", topic: lTopic.trim() }),
-      });
-      setOk(`Live creado. Enlace: ${s.meetUrl}`);
-      setLTopic("");
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  async function addProduct() {
-    if (!prName.trim() || !prBrand.trim()) {
-      setError("Producto y marca son obligatorios (marcas reconocidas).");
-      return;
-    }
-    if (!prGym) {
-      setError("Elige el gimnasio del producto.");
-      return;
-    }
+  async function addProducto() {
+    if (!pName.trim() || !pBrand.trim()) { setError("Producto y marca son obligatorios."); return; }
+    if (!myGym) { setError("Primero registra tu gimnasio."); return; }
     try {
       await api("/api/products", {
         method: "POST",
-        body: JSON.stringify({ gymId: prGym, name: prName.trim(), brand: prBrand.trim() }),
+        body: JSON.stringify({ gymId: myGym.id, name: pName.trim(), brand: pBrand.trim() }),
       });
-      setOk(`Producto registrado: ${prName.trim()} (${prBrand.trim()}). Pendiente de aval nutricional.`);
-      setPrName("");
-      setPrBrand("");
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
+      setOk("Producto enviado: un nutricionista dará el aval.");
+      setPName(""); setPBrand("");
+      await load();
+    } catch (e) { setError(e.message); }
   }
 
-  async function addDish() {
-    if (!dRest || !dName.trim()) {
-      setError("Elige el restaurante y el nombre del plato.");
-      return;
-    }
+  async function addPlato() {
+    if (!dName.trim()) { setError("El nombre del plato es obligatorio."); return; }
+    if (!myRest) { setError("Primero registra tu restaurante."); return; }
     try {
       await api("/api/dishes", {
         method: "POST",
         body: JSON.stringify({
-          restaurantId: dRest,
+          restaurantId: myRest.id,
           name: dName.trim(),
-          price: dPrice === "" ? null : Number(dPrice),
-          calories: dKcal === "" ? null : Number(dKcal),
+          calories: dCal === "" ? null : Number(dCal),
           proteinG: dProt === "" ? null : Number(dProt),
+          price: dPrice === "" ? null : Number(dPrice),
           day: dDay === "" ? null : Number(dDay),
-          special: dSpecial,
         }),
       });
-      setOk(`Plato registrado: ${dName.trim()}`);
-      setDName("");
-      setDPrice("");
-      setDKcal("");
-      setDProt("");
-      setDDay("");
-      setDSpecial(false);
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
+      setOk("Plato añadido a tu menú.");
+      setDName(""); setDCal(""); setDProt(""); setDPrice(""); setDDay("");
+      celebrarLogro();
+      await load();
+    } catch (e) { setError(e.message); }
   }
 
-  async function delDish(id) {
+  async function delPlato(id) {
     try {
       await api(`/api/dishes/${id}`, { method: "DELETE" });
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
+      setOk("Plato eliminado.");
+      await load();
+    } catch (e) { setError(e.message); }
   }
 
+  async function publicar() {
+    if (!pTitulo.trim()) { setError("El título es obligatorio."); return; }
+    try {
+      await api("/api/posts", {
+        method: "POST",
+        body: JSON.stringify({ authorId: user.id, kind: pKind, title: pTitulo.trim(), description: pTexto.trim() || null }),
+      });
+      setOk("Publicado. Tus clientes y el admin lo ven.");
+      setPTitulo(""); setPTexto("");
+      celebrarLogro();
+      await load();
+    } catch (e) { setError(e.message); }
+  }
+
+  // ------------------------------------------------------------ render auth --
   if (!user) {
     return (
       <View style={styles.root}>
         <StatusBar style="dark" />
         <ScrollView contentContainerStyle={styles.loginCard} keyboardShouldPersistTaps="handled">
-          <Text style={styles.brand}>Nutri<Text style={{ color: GREEN }}>Flow</Text></Text>
-          <Text style={[styles.appTag, { color: ORANGE }]}>APP SERVICIO</Text>
+          <Text style={styles.brand}>Nutri<Text style={{ color: BRAND }}>Flow</Text></Text>
+          <Text style={[styles.appTag, { color: C.orangeVivid }]}>APP NEGOCIO</Text>
+          <Text style={styles.lead}>Gimnasios y restaurantes saludables</Text>
 
           {mode === "login" && (
             <>
-              <Text style={styles.title}>Gestiona tus clientes</Text>
+              <Text style={styles.title}>Entra a tu negocio</Text>
               <Field label="Correo" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
               <Field label="Contraseña" value={pass} onChangeText={setPass} secureTextEntry />
               {error !== "" && <Text style={styles.err}>{error}</Text>}
-              {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={login} disabled={loading}>
+              {ok !== "" && <Text style={styles.okMsg}>{ok}</Text>}
+              <Pressable style={[styles.btn, { backgroundColor: C.orangeVivid }]} onPress={login} disabled={loading}>
                 <Text style={styles.btnTxt}>{loading ? "Ingresando…" : "Ingresar"}</Text>
               </Pressable>
               <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setMode("forgot"); }}>
                 <Text style={styles.link}>¿Olvidaste tu contraseña?</Text>
               </Pressable>
-              <Text style={styles.hint}>Tus clientes y gimnasios se sincronizan con el Admin General.</Text>
+              <Text style={styles.hint}>
+                Cada negocio entra con su usuario y ve únicamente su información.
+              </Text>
             </>
           )}
 
           {mode === "forgot" && (
             <>
               <Text style={styles.title}>Recuperar contraseña</Text>
-              <Text style={styles.muted}>Te generamos un código para restablecerla. Escríbelo y define tu nueva clave.</Text>
+              <Text style={styles.muted}>Te generamos un código para restablecerla.</Text>
               <Field label="Correo" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
               {error !== "" && <Text style={styles.err}>{error}</Text>}
-              {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={forgot} disabled={loading}>
+              {ok !== "" && <Text style={styles.okMsg}>{ok}</Text>}
+              <Pressable style={[styles.btn, { backgroundColor: C.orangeVivid }]} onPress={forgot} disabled={loading}>
                 <Text style={styles.btnTxt}>{loading ? "Enviando…" : "Enviar código"}</Text>
               </Pressable>
               <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setMode("login"); }}>
@@ -543,12 +565,11 @@ export default function App() {
           {mode === "reset" && (
             <>
               <Text style={styles.title}>Nueva contraseña</Text>
-              {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
               <Field label="Código de recuperación" value={resetToken} onChangeText={setResetToken} autoCapitalize="none" />
               <Field label="Nueva contraseña (mín. 8)" value={newPass} onChangeText={setNewPass} secureTextEntry />
               {error !== "" && <Text style={styles.err}>{error}</Text>}
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={resetPass} disabled={loading}>
-                <Text style={styles.btnTxt}>{loading ? "Guardando…" : "Guardar nueva contraseña"}</Text>
+              <Pressable style={[styles.btn, { backgroundColor: C.orangeVivid }]} onPress={resetPass} disabled={loading}>
+                <Text style={styles.btnTxt}>{loading ? "Guardando…" : "Guardar"}</Text>
               </Pressable>
               <Pressable style={styles.linkBtn} onPress={() => { setError(""); setOk(""); setMode("login"); }}>
                 <Text style={styles.link}>‹ Volver a ingresar</Text>
@@ -560,18 +581,110 @@ export default function App() {
     );
   }
 
+  // -------------------------------------------- selector de tipo de negocio --
+  // Se elige una sola vez. A partir de ahí el panel muestra SOLO ese negocio.
+  if (!biz) {
+    return (
+      <View style={styles.root}>
+        <StatusBar style="dark" />
+        <ScrollView contentContainerStyle={styles.chooseCard}>
+          <Text style={styles.brand}>Nutri<Text style={{ color: BRAND }}>Flow</Text></Text>
+          <Text style={styles.title}>¿Qué tipo de negocio tienes?</Text>
+          <Text style={styles.muted}>
+            Hola {String(user.name || "").split(" ")[0]}. Elige tu rubro: tu panel se configurará solo para él
+            y no verás nada de otros negocios.
+          </Text>
+
+          {error !== "" && <Text style={styles.err}>{error}</Text>}
+          {ok !== "" && <Text style={styles.okMsg}>{ok}</Text>}
+          {celebrar && <Confetti count={20} />}
+
+          <Press
+            style={[styles.choice, { borderColor: C.tealVivid, backgroundColor: C.tealSoft }]}
+            onPress={() => elegirNegocio("GIMNASIO")}
+          >
+            <Text style={styles.choiceIcon}>🏋️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.choiceT}>Gimnasio</Text>
+              <Text style={styles.choiceS}>Ventas por asistencias, productos avalados y clientes que entrenan contigo.</Text>
+            </View>
+          </Press>
+
+          <Press
+            style={[styles.choice, { borderColor: C.coralVivid, backgroundColor: C.coralSoft }]}
+            onPress={() => elegirNegocio("RESTAURANTE")}
+          >
+            <Text style={styles.choiceIcon}>🍽️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.choiceT}>Restaurante</Text>
+              <Text style={styles.choiceS}>Tu menú, platos, pedidos de tus clientes y estrategias de venta.</Text>
+            </View>
+          </Press>
+
+          <Pressable style={[styles.btn, { backgroundColor: C.muted, marginTop: 18 }]} onPress={logout}>
+            <Text style={styles.btnTxt}>Salir</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ------------------------------------------------------------- métricas ---
+  const mesKey = (d) => String(d || "").slice(0, 7);
+  const mesActual = new Date().toISOString().slice(0, 7);
+
+  // Ventas por mes: asistencias (gimnasio) o pedidos (restaurante).
+  const movimientos = esRest ? ventas : visitas;
+  const meses = [...new Set(movimientos.map((m) => mesKey(m.createdAt || m.date || m.scheduledAt)))].sort();
+  const porMes = {};
+  movimientos.forEach((m) => {
+    const k = mesKey(m.createdAt || m.date || m.scheduledAt);
+    porMes[k] = (porMes[k] || 0) + 1;
+  });
+  const serieVentas = (meses.length ? meses : [mesActual]).slice(-7).map((k) => porMes[k] || 0);
+  const delMes = movimientos.filter((m) => mesKey(m.createdAt || m.date || m.scheduledAt) === mesActual).length;
+
+  // Plato más pedido (restaurante).
+  const topPlato = (() => {
+    const c = {};
+    ventas.forEach((v) => { const n = String(v.name || "").split(" (")[0].trim(); if (n) c[n] = (c[n] || 0) + 1; });
+    const arr = Object.entries(c).sort((a, b) => b[1] - a[1]);
+    return arr.length ? arr[0] : null;
+  })();
+
+  const avalados = products.filter((p) => p.approved).length;
+  const kcalVendidas = ventas.reduce((a, v) => a + (Number(v.calories) || 0), 0);
+
+  // Logros del negocio (hitos simples y visibles).
+  const logros = esGym
+    ? [
+        { t: "Primer cliente", ok: clients.length >= 1, icon: "👤" },
+        { t: "10 clientes", ok: clients.length >= 10, icon: "👥" },
+        { t: "50 asistencias", ok: visitas.length >= 50, icon: "🔥" },
+        { t: "Producto avalado", ok: avalados >= 1, icon: "✅" },
+      ]
+    : [
+        { t: "Primer cliente", ok: clients.length >= 1, icon: "👤" },
+        { t: "5 platos en el menú", ok: dishes.length >= 5, icon: "🍽️" },
+        { t: "25 pedidos", ok: ventas.length >= 25, icon: "📦" },
+        { t: "Primera publicación", ok: posts.length >= 1, icon: "📣" },
+      ];
+  const logrosOk = logros.filter((l) => l.ok).length;
+
+  // --------------------------------------------------------- render header ---
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <View style={[styles.avatar, { backgroundColor: C.orangeVivid }]}>
-            <Text style={styles.avatarTxt}>{String(user.name || "V").slice(0, 1).toUpperCase()}</Text>
+          <View style={[styles.avatar, { backgroundColor: colorBiz }]}>
+            <Text style={styles.avatarTxt}>{String(user.name || "N").slice(0, 1).toUpperCase()}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.hello}>Hola, {user.name.split(" ")[0]}</Text>
+            <Text style={styles.hello} numberOfLines={1}>{esRest ? (myRest?.name || "Mi restaurante") : (myGym?.name || "Mi gimnasio")}</Text>
             <View style={styles.subRow}>
-              <Pill color={C.brand} soft={C.brandSoft}>Portal de negocios</Pill>
+              <Pill color={colorBizInk} soft={colorBizSoft}>{esRest ? "RESTAURANTE" : "GIMNASIO"}</Pill>
+              <Pill color={C.brand} soft={C.brandSoft}>{logrosOk}/{logros.length} logros</Pill>
               <Text style={styles.sub}>{syncAt ? timeAgo(syncAt, now) : "sincronizando…"}</Text>
             </View>
           </View>
@@ -579,19 +692,40 @@ export default function App() {
             <Text style={styles.logoutTxt}>Salir</Text>
           </Pressable>
         </View>
+
         <View style={styles.kpiRow}>
-          <KpiCard index={0} icon="👥" value={clients.length} label="Clientes" color={C.orangeVivid} />
-          <KpiCard index={1} icon="🏋️" value={gyms.length} label="Gimnasios" color={C.tealVivid} />
+          <KpiCard index={0} icon="👥" value={clients.length} label="Mis clientes" color={colorBiz} />
+          <KpiCard
+            index={1}
+            icon={esRest ? "📦" : "🔥"}
+            value={delMes}
+            label={esRest ? "Pedidos del mes" : "Asistencias del mes"}
+            color={C.brandVivid}
+          />
         </View>
         <View style={styles.kpiRow}>
-          <KpiCard index={2} icon="🍽️" value={rests.length} label="Restaurantes" color={C.coralVivid} />
-          <KpiCard index={3} icon="📦" value={(products || []).length} label="Productos" color={C.amberVivid} />
+          <KpiCard
+            index={2}
+            icon={esRest ? "🍽️" : "🛍️"}
+            value={esRest ? dishes.length : products.length}
+            label={esRest ? "Platos en menú" : "Mis productos"}
+            color={C.amberVivid}
+          />
+          <KpiCard
+            index={3}
+            icon={esRest ? "📈" : "✅"}
+            value={esRest ? kcalVendidas : avalados}
+            label={esRest ? "Kcal vendidas" : "Productos avalados"}
+            color={C.coralVivid}
+            format={(n) => (esRest ? `${Math.round(n / 1000)}k` : String(Math.round(n)))}
+          />
         </View>
+
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs}>
-          {[["clientes", "Clientes"], ["gimnasios", "Gimnasios"], ["restaurantes", "Restaurantes"], ["contenido", "Contenido"], ["productos", "Productos"]].map(([t, label]) => (
+          {TABS.map(([t, label]) => (
             <Press
               key={t}
-              style={[styles.tab, tab === t && styles.tabOn]}
+              style={[styles.tab, tab === t && { backgroundColor: colorBiz }]}
               scale={0.94}
               onPress={() => setTab(t)}
             >
@@ -600,194 +734,337 @@ export default function App() {
           ))}
         </ScrollView>
       </View>
+
       <ScrollView
         style={styles.body}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load()} tintColor={GREEN} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colorBiz} />}
       >
         {error !== "" && <Text style={styles.err}>{error}</Text>}
-        {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
-        {tab === "clientes" && (
+        {ok !== "" && <Text style={styles.okMsg}>{ok}</Text>}
+        {celebrar && <Confetti count={18} />}
+
+        {/* --------------------------------------------------------- Resumen */}
+        {tab === "resumen" && (
           <View>
-            <SectionHead title="Tus clientes" count={clients.length} />
-            {clients.length === 0 && (
+            <FadeUp index={0} style={[styles.card, { borderColor: colorBiz + "55" }]}>
+              <Text style={styles.cardT}>Tus logros</Text>
+              <Text style={styles.rowS}>{logrosOk} de {logros.length} desbloqueados. Sigue así.</Text>
+              <View style={styles.logroGrid}>
+                {logros.map((l) => (
+                  <View key={l.t} style={[styles.logro, l.ok ? { backgroundColor: colorBizSoft, borderColor: colorBiz } : null]}>
+                    <Text style={{ fontSize: 20 }}>{l.icon}</Text>
+                    <Text style={[styles.logroT, l.ok && { color: colorBizInk }]} numberOfLines={2}>{l.t}</Text>
+                    <Text style={styles.logroS}>{l.ok ? "Logrado" : "Bloqueado"}</Text>
+                  </View>
+                ))}
+              </View>
+            </FadeUp>
+
+            <SectionHead title="Accesos rápidos" />
+            <View style={styles.quickRow}>
+              <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab("negocio")}>
+                <Text style={{ fontSize: 22 }}>{esRest ? "🍽️" : "🏋️"}</Text>
+                <Text style={styles.quickT}>{esRest ? "Mi restaurante" : "Mi gimnasio"}</Text>
+              </Press>
+              <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab(esRest ? "menu" : "productos")}>
+                <Text style={{ fontSize: 22 }}>{esRest ? "📋" : "🛍️"}</Text>
+                <Text style={styles.quickT}>{esRest ? "Mi menú" : "Productos"}</Text>
+              </Press>
+              <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab("ventas")}>
+                <Text style={{ fontSize: 22 }}>📈</Text>
+                <Text style={styles.quickT}>Ventas</Text>
+              </Press>
+              <Press style={[styles.quick, { borderColor: colorBiz }]} onPress={() => setTab("contenido")}>
+                <Text style={{ fontSize: 22 }}>📣</Text>
+                <Text style={styles.quickT}>Contenido</Text>
+              </Press>
+            </View>
+
+            {esGym && !myGym && (
               <EmptyState
-                icon="👥"
-                title="Sin clientes todavía"
-                text="Los usuarios que usen tu gimnasio o restaurante aparecerán aquí."
+                icon="🏋️"
+                title="Registra tu gimnasio"
+                text="Carga nombre, dirección, horario y servicio. Tus clientes te verán en su app."
+                cta="Registrar gimnasio"
+                onPress={() => setTab("negocio")}
+                tint={colorBizInk}
               />
             )}
-            {clients.map((c, i) => (
-              <FadeUp key={c.id} index={i}>
-                <View style={sv.card}>
-                  <View style={sv.avatar}>
-                    <Text style={sv.avatarTxt}>{String(c.name || "?").slice(0, 1).toUpperCase()}</Text>
+            {esRest && !myRest && (
+              <EmptyState
+                icon="🍽️"
+                title="Registra tu restaurante"
+                text="Carga tu carta y horarios. Tus clientes pedirán desde su app."
+                cta="Registrar restaurante"
+                onPress={() => setTab("negocio")}
+                tint={colorBizInk}
+              />
+            )}
+          </View>
+        )}
+
+        {/* ---------------------------------------------------------- Ventas */}
+        {tab === "ventas" && (
+          <View>
+            <SectionHead title={esRest ? "Pedidos" : "Asistencias"} right={<Pill color={C.muted} soft={C.surface2}>últimos 7 meses</Pill>} />
+            <FadeUp index={0} style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardT}>{esRest ? "Pedidos por mes" : "Asistencias por mes"}</Text>
+                <Pill color={C.brand} soft={C.brandSoft}>{delMes} este mes</Pill>
+              </View>
+              <Sparkbars data={serieVentas} height={44} color={colorBiz} highlight={serieVentas.length - 1} />
+              <View style={styles.weekLabels}>
+                {(meses.length ? meses : [mesActual]).slice(-7).map((k) => (
+                  <Text key={k} style={styles.weekL}>{k.slice(5)}</Text>
+                ))}
+              </View>
+              {esRest && topPlato ? (
+                <View style={styles.topBox}>
+                  <Text style={styles.topT}>Plato más pedido</Text>
+                  <Text style={styles.topV}>{topPlato[0]} · {topPlato[1]} pedidos</Text>
+                </View>
+              ) : null}
+            </FadeUp>
+
+            <SectionHead title={esRest ? "Últimos pedidos" : "Últimas asistencias"} count={movimientos.length} />
+            {movimientos.length === 0 && (
+              <EmptyState
+                icon={esRest ? "📦" : "🔥"}
+                title={esRest ? "Sin pedidos todavía" : "Sin asistencias todavía"}
+                text={esRest ? "Cuando tus clientes registren un plato tuyo, aparecerá aquí." : "Cuando tus clientes hagan check-in en tu gimnasio, aparecerá aquí."}
+              />
+            )}
+            {movimientos.slice(0, 20).map((m, i) => (
+              <FadeUp key={m.id} index={i} delay={i * 35}>
+                <View style={styles.row}>
+                  <View style={[styles.rowIcon, { backgroundColor: colorBizSoft }]}>
+                    <Text style={{ fontSize: 14 }}>{esRest ? "🍽️" : "🔥"}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowT}>{c.name}</Text>
-                    <Text style={styles.rowS}>{c.email}</Text>
+                    <Text style={styles.rowT} numberOfLines={1}>{esRest ? (m.name || m.type) : (m.user?.name || "Cliente")}</Text>
+                    <Text style={styles.rowS}>
+                      {esRest ? `${m.calories ?? 0} kcal · ${m.source === "RESTAURANTE" ? "pedido" : "registro"}` : `check-in ${m.hour ?? "?"}:00`}
+                    </Text>
                   </View>
-                  <Pill color={C.brand} soft={C.brandSoft}>Activo</Pill>
+                  <Text style={styles.rowDate}>{String(m.createdAt || m.date || "").slice(0, 10)}</Text>
                 </View>
               </FadeUp>
             ))}
           </View>
         )}
-        {tab === "gimnasios" && (
+
+        {/* -------------------------------------------------------- Clientes */}
+        {tab === "clientes" && (
           <View>
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Registrar gimnasio / restaurante</Text>
-              <Field label="Nombre" value={gName} onChangeText={setGName} placeholder="Gimnasio Central" />
-              <Field label="Dirección" value={gAddress} onChangeText={setGAddress} placeholder="Av. Principal 123" />
-              <Field label="Servicio que ofrece" value={gService} onChangeText={setGService} placeholder="Musculación, funcional, comida saludable" />
-              <Field label="URL del video (opcional)" value={gVideo} onChangeText={setGVideo} autoCapitalize="none" placeholder="https://…" />
-              <Field label="Abre (hora 0-23)" value={gOpen} onChangeText={setGOpen} keyboardType="numeric" placeholder="6" />
-              <Field label="Cierra (hora 0-23)" value={gClose} onChangeText={setGClose} keyboardType="numeric" placeholder="22" />
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={addGym}>
-                <Text style={styles.btnTxt}>Registrar</Text>
-              </Pressable>
-            </View>
-            {gyms.map((g) => (
-              <View key={g.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>{g.name}</Text>
-                  <Text style={styles.rowS}>{g.address} · {g.service}</Text>
-                  {g.videoUrl ? <Text style={styles.rowS}>Video registrado ✓</Text> : null}
+            <SectionHead title="Mis clientes" count={clients.length} />
+            {clients.length === 0 && (
+              <EmptyState
+                icon="👥"
+                title="Sin clientes todavía"
+                text={esRest
+                  ? "Cuando un usuario pida un plato de tu restaurante, se volverá tu cliente."
+                  : "Cuando un usuario haga check-in en tu gimnasio, se volverá tu cliente."}
+                tint={colorBizInk}
+              />
+            )}
+            {clients.map((c, i) => (
+              <FadeUp key={c.id} index={i}>
+                <View style={styles.row}>
+                  <View style={[styles.rowIcon, { backgroundColor: colorBizSoft }]}>
+                    <Text style={[styles.rowIconTxt, { color: colorBizInk }]}>{String(c.name || "?").slice(0, 1).toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowT} numberOfLines={1}>{c.name}</Text>
+                    <Text style={styles.rowS}>{c.email}</Text>
+                  </View>
+                  {c.membership === "PREMIUM" ? <Pill color={C.amber} soft={C.amberSoft}>PREMIUM</Pill> : null}
                 </View>
-              </View>
+              </FadeUp>
             ))}
           </View>
         )}
-        {tab === "restaurantes" && (
+
+        {/* --------------------------------------------------------- Negocio */}
+        {tab === "negocio" && (
           <View>
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Registrar restaurante saludable</Text>
-              <Field label="Nombre" value={rName} onChangeText={setRName} placeholder="Sabor Verde" />
-              <Field label="Dirección" value={rAddress} onChangeText={setRAddress} placeholder="Calle Salud 456" />
-              <Field label="Servicio que ofrece" value={rService} onChangeText={setRService} placeholder="Bowls, ensaladas, jugos" />
-              <Field label="URL del video (opcional)" value={rVideo} onChangeText={setRVideo} autoCapitalize="none" placeholder="https://…" />
-              <Field label="Abre (hora 0-23)" value={rOpen} onChangeText={setROpen} keyboardType="numeric" placeholder="8" />
-              <Field label="Cierra (hora 0-23)" value={rClose} onChangeText={setRClose} keyboardType="numeric" placeholder="22" />
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={addRestaurant}>
-                <Text style={styles.btnTxt}>Registrar</Text>
-              </Pressable>
-            </View>
-            {rests.map((r) => (
-              <View key={r.id} style={styles.row}>
+            <SectionHead title={esRest ? "Mi restaurante" : "Mi gimnasio"} />
+            <FadeUp index={0} style={styles.card}>
+              <Text style={styles.cardT}>{esRest ? "Datos de tu restaurante" : "Datos de tu gimnasio"}</Text>
+              <Text style={styles.rowS}>Esto es lo que verán tus clientes en su app.</Text>
+              <Field label="Nombre" value={bName} onChangeText={setBName} placeholder={esRest ? "Sabor Verde" : "Gimnasio Olimpo"} />
+              <Field label="Dirección" value={bAddress} onChangeText={setBAddress} placeholder="Av. Principal 123, Miraflores" />
+              <Field label="Servicio que ofreces" value={bService} onChangeText={setBService} placeholder={esRest ? "Bowls y ensaladas" : "Musculación y funcional"} />
+              <Field label="URL del video (opcional)" value={bVideo} onChangeText={setBVideo} autoCapitalize="none" placeholder="https://…" />
+              <View style={styles.twoCols}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>{r.name}</Text>
-                  <Text style={styles.rowS}>{r.address} · {r.service}</Text>
-                  {r.videoUrl ? <Text style={styles.rowS}>Video registrado ✓</Text> : null}
-                  <Text style={styles.rowS}>{dishes.filter((d) => d.restaurantId === r.id).length} platos en carta</Text>
+                  <Field label="Abre (0-23)" value={bOpen} onChangeText={setBOpen} keyboardType="numeric" placeholder="6" />
+                </View>
+                <View style={{ width: 12 }} />
+                <View style={{ flex: 1 }}>
+                  <Field label="Cierra (0-23)" value={bClose} onChangeText={setBClose} keyboardType="numeric" placeholder="22" />
                 </View>
               </View>
-            ))}
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Platos de la carta (con valores nutricionales)</Text>
-              <Text style={styles.label}>Restaurante</Text>
-              <View style={styles.chips}>
-                {rests.map((r) => (
-                  <Pressable key={r.id} style={[styles.chip, dRest === r.id && styles.chipOn]} onPress={() => setDRest(r.id)}>
-                    <Text style={[styles.chipTxt, dRest === r.id && styles.chipTxtOn]}>{r.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Field label="Plato" value={dName} onChangeText={setDName} placeholder="Bowl proteico" />
-              <Field label="Precio S/" value={dPrice} onChangeText={setDPrice} keyboardType="numeric" placeholder="18" />
-              <Field label="Calorías" value={dKcal} onChangeText={setDKcal} keyboardType="numeric" placeholder="450" />
-              <Field label="Proteína (g)" value={dProt} onChangeText={setDProt} keyboardType="numeric" placeholder="25" />
-              <Field label="Día menú semanal 1-7 (vacío = siempre)" value={dDay} onChangeText={setDDay} keyboardType="numeric" placeholder="" />
-              <Pressable style={[styles.chip, dSpecial && styles.chipOn, { alignSelf: "flex-start", marginBottom: 12 }]} onPress={() => setDSpecial(!dSpecial)}>
-                <Text style={[styles.chipTxt, dSpecial && styles.chipTxtOn]}>★ Plato especial</Text>
-              </Pressable>
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={addDish}>
-                <Text style={styles.btnTxt}>Agregar plato</Text>
-              </Pressable>
-            </View>
-            {dishes.map((d) => (
-              <View key={d.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>{d.special ? "★ " : ""}{d.name}</Text>
-                  <Text style={styles.rowS}>{d.calories ?? 0} kcal · {d.proteinG ?? 0}g prot · {d.price != null ? `S/ ${d.price}` : "s/p"}{d.day ? ` · día ${d.day}` : ""}</Text>
-                </View>
-                <Pressable onPress={() => delDish(d.id)}>
-                  <Text style={styles.del}>Borrar</Text>
-                </Pressable>
-              </View>
-            ))}
+              <Press style={[styles.btn, { backgroundColor: colorBiz }]} onPress={guardarNegocio}>
+                <Text style={styles.btnTxt}>{esRest ? (myRest ? "Guardar cambios" : "Registrar restaurante") : (myGym ? "Guardar cambios" : "Registrar gimnasio")}</Text>
+              </Press>
+            </FadeUp>
+
+            {esGym && myGym ? (
+              <FadeUp index={1} style={styles.card}>
+                <Text style={styles.cardT}>Resumen de tu gimnasio</Text>
+                <Text style={styles.rowS}>{myGym.address}</Text>
+                <Text style={styles.rowS}>{myGym.service}</Text>
+                <Text style={styles.rowS}>Horario {myGym.openHour ?? "?"}:00 – {myGym.closeHour ?? "?"}:00</Text>
+                <Press style={[styles.btnGhost, { borderColor: colorBiz }]} onPress={() => { setBName(myGym.name || ""); setBAddress(myGym.address || ""); setBService(myGym.service || ""); setBVideo(myGym.videoUrl || ""); setBOpen(myGym.openHour == null ? "" : String(myGym.openHour)); setBClose(myGym.closeHour == null ? "" : String(myGym.closeHour)); }}>
+                  <Text style={[styles.btnGhostTxt, { color: colorBizInk }]}>Editar datos</Text>
+                </Press>
+              </FadeUp>
+            ) : null}
+
+            {esRest && myRest ? (
+              <FadeUp index={1} style={styles.card}>
+                <Text style={styles.cardT}>Resumen de tu restaurante</Text>
+                <Text style={styles.rowS}>{myRest.address}</Text>
+                <Text style={styles.rowS}>{myRest.service}</Text>
+                <Text style={styles.rowS}>Horario {myRest.openHour ?? "?"}:00 – {myRest.closeHour ?? "?"}:00</Text>
+                <Press style={[styles.btnGhost, { borderColor: colorBiz }]} onPress={() => { setBName(myRest.name || ""); setBAddress(myRest.address || ""); setBService(myRest.service || ""); setBVideo(myRest.videoUrl || ""); setBOpen(myRest.openHour == null ? "" : String(myRest.openHour)); setBClose(myRest.closeHour == null ? "" : String(myRest.closeHour)); }}>
+                  <Text style={[styles.btnGhostTxt, { color: colorBizInk }]}>Editar datos</Text>
+                </Press>
+              </FadeUp>
+            ) : null}
           </View>
         )}
-        {tab === "contenido" && (
-          <View>
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Publicar reel / video / foto / servicio</Text>
-              <View style={styles.chips}>
-                {["REEL", "VIDEO", "FOTO", "SERVICIO"].map((k) => (
-                  <Pressable key={k} style={[styles.chip, pKind === k && styles.chipOn]} onPress={() => setPKind(k)}>
-                    <Text style={[styles.chipTxt, pKind === k && styles.chipTxtOn]}>{k === "SERVICIO" ? "Servicio*" : k}</Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Field label="Título" value={pTitle} onChangeText={setPTitle} placeholder="Tour por el gimnasio" />
-              <Field label="URL foto/video (opcional)" value={pMedia} onChangeText={setPMedia} autoCapitalize="none" placeholder="https://…" />
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={publish}>
-                <Text style={styles.btnTxt}>Publicar</Text>
-              </Pressable>
-              <Text style={styles.rowS}>*Servicio = video detallado de lo que ofreces.</Text>
-            </View>
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Hacer live de mi negocio</Text>
-              <Field label="Tema del live" value={lTopic} onChangeText={setLTopic} placeholder="Clase abierta en vivo" />
-              <Pressable style={[styles.btn, { backgroundColor: BRAND }]} onPress={goLive}>
-                <Text style={styles.btnTxt}>🔴 Crear live</Text>
-              </Pressable>
-            </View>
-            {lives.map((s) => (
-              <View key={s.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>🔴 {s.topic}</Text>
-                  <Text style={styles.rowS}>{s.status}</Text>
-                </View>
-              </View>
-            ))}
-            {posts.map((p) => (
-              <View key={p.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>{p.kind} · {p.title}</Text>
-                  <Text style={styles.rowS}>{p.mediaUrl ? "Con multimedia ✓" : "Sin multimedia"}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
+
+        {/* -------------------------------------- Productos (gimnasio) / Menú */}
         {tab === "productos" && (
           <View>
-            <View style={styles.card}>
-              <Text style={styles.cardT}>Ofrecer producto (marcas reconocidas)</Text>
-              <Text style={styles.rowS}>Requiere aval de un nutricionista para publicarse.</Text>
-              <Text style={styles.label}>Gimnasio</Text>
+            <SectionHead title="Mis productos" count={products.length} />
+            {!myGym && (
+              <EmptyState
+                icon="🛍️"
+                title="Primero registra tu gimnasio"
+                text="Los productos se cuelgan de tu gimnasio y necesitan el aval de un nutricionista."
+                cta="Registrar gimnasio"
+                onPress={() => setTab("negocio")}
+                tint={colorBizInk}
+              />
+            )}
+            {myGym ? (
+              <>
+                <FadeUp index={0} style={styles.card}>
+                  <Text style={styles.cardT}>Nuevo producto</Text>
+                  <Field label="Producto" value={pName} onChangeText={setPName} placeholder="Proteína Whey" />
+                  <Field label="Marca" value={pBrand} onChangeText={setPBrand} placeholder="Optimum" />
+                  <Press style={[styles.btn, { backgroundColor: colorBiz }]} onPress={addProducto}>
+                    <Text style={styles.btnTxt}>Enviar para aval</Text>
+                  </Press>
+                </FadeUp>
+                {products.length === 0 && <Text style={styles.muted}>Aún no cargaste productos.</Text>}
+                {products.map((p, i) => (
+                  <FadeUp key={p.id} index={i + 1}>
+                    <View style={styles.row}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.rowT}>{p.name}</Text>
+                        <Text style={styles.rowS}>{p.brand}</Text>
+                      </View>
+                      <Pill color={p.approved ? C.brand : C.amber} soft={p.approved ? C.brandSoft : C.amberSoft}>
+                        {p.approved ? "Avalado" : "Pendiente"}
+                      </Pill>
+                    </View>
+                  </FadeUp>
+                ))}
+              </>
+            ) : null}
+          </View>
+        )}
+
+        {tab === "menu" && (
+          <View>
+            <SectionHead title="Mi menú" count={dishes.length} />
+            {!myRest && (
+              <EmptyState
+                icon="📋"
+                title="Primero registra tu restaurante"
+                text="Los platos se cuelgan de tu restaurante y es lo que verán tus clientes."
+                cta="Registrar restaurante"
+                onPress={() => setTab("negocio")}
+                tint={colorBizInk}
+              />
+            )}
+            {myRest ? (
+              <>
+                <FadeUp index={0} style={styles.card}>
+                  <Text style={styles.cardT}>Nuevo plato</Text>
+                  <Field label="Nombre del plato" value={dName} onChangeText={setDName} placeholder="Bowl proteico" />
+                  <View style={styles.twoCols}>
+                    <View style={{ flex: 1 }}><Field label="Kcal" value={dCal} onChangeText={setDCal} keyboardType="numeric" placeholder="480" /></View>
+                    <View style={{ width: 12 }} />
+                    <View style={{ flex: 1 }}><Field label="Proteína (g)" value={dProt} onChangeText={setDProt} keyboardType="numeric" placeholder="30" /></View>
+                  </View>
+                  <View style={styles.twoCols}>
+                    <View style={{ flex: 1 }}><Field label="Precio S/" value={dPrice} onChangeText={setDPrice} keyboardType="numeric" placeholder="18" /></View>
+                    <View style={{ width: 12 }} />
+                    <View style={{ flex: 1 }}><Field label="Día (1-7)" value={dDay} onChangeText={setDDay} keyboardType="numeric" placeholder="1" /></View>
+                  </View>
+                  <Press style={[styles.btn, { backgroundColor: colorBiz }]} onPress={addPlato}>
+                    <Text style={styles.btnTxt}>Añadir al menú</Text>
+                  </Press>
+                </FadeUp>
+                {dishes.length === 0 && <Text style={styles.muted}>Tu menú está vacío.</Text>}
+                {dishes.map((d, i) => (
+                  <FadeUp key={d.id} index={i + 1}>
+                    <View style={styles.row}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.rowT}>{d.name}</Text>
+                        <Text style={styles.rowS}>{d.calories ?? 0} kcal · {d.proteinG ?? 0}g prot · S/ {Number(d.price || 0).toFixed(2)}</Text>
+                      </View>
+                      <Pressable style={styles.del} onPress={() => delPlato(d.id)}>
+                        <Text style={styles.delTxt}>Quitar</Text>
+                      </Pressable>
+                    </View>
+                  </FadeUp>
+                ))}
+              </>
+            ) : null}
+          </View>
+        )}
+
+        {/* ------------------------------------------------------- Contenido */}
+        {tab === "contenido" && (
+          <View>
+            <SectionHead title="Mi contenido" count={posts.length} />
+            <Text style={styles.rowS}>Publica tus estrategias de venta, tips y promos. Lo ven tus clientes y el admin.</Text>
+            <FadeUp index={0} style={styles.card}>
+              <Text style={styles.cardT}>Nueva publicación</Text>
               <View style={styles.chips}>
-                {gyms.map((g) => (
-                  <Pressable key={g.id} style={[styles.chip, prGym === g.id && styles.chipOn]} onPress={() => setPrGym(g.id)}>
-                    <Text style={[styles.chipTxt, prGym === g.id && styles.chipTxtOn]}>{g.name}</Text>
+                {["TIP", "REEL", "VIDEO", "FOTO", "PROMO"].map((k) => (
+                  <Pressable key={k} style={[styles.chip, pKind === k && { backgroundColor: colorBiz, borderColor: colorBiz }]} onPress={() => setPKind(k)}>
+                    <Text style={[styles.chipTxt, pKind === k && styles.chipTxtOn]}>{k}</Text>
                   </Pressable>
                 ))}
               </View>
-              <Field label="Producto" value={prName} onChangeText={setPrName} placeholder="Proteína Whey" />
-              <Field label="Marca reconocida" value={prBrand} onChangeText={setPrBrand} placeholder="Optimum, Dymatize…" />
-              <Pressable style={[styles.btn, { backgroundColor: ORANGE }]} onPress={addProduct}>
-                <Text style={styles.btnTxt}>Registrar (pendiente de aval)</Text>
-              </Pressable>
-            </View>
-            {products.map((p) => (
-              <View key={p.id} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowT}>{p.name}</Text>
-                  <Text style={styles.rowS}>{p.brand} · {p.approved ? "✓ Avalado por nutricionista" : "⏳ Pendiente de aval"}</Text>
+              <Field label="Título" value={pTitulo} onChangeText={setPTitulo} placeholder="2x1 en bowls los martes" />
+              <Field label="Detalle (opcional)" value={pTexto} onChangeText={setPTexto} placeholder="Describe tu promoción o estrategia…" />
+              <Press style={[styles.btn, { backgroundColor: colorBiz }]} onPress={publicar}>
+                <Text style={styles.btnTxt}>Publicar</Text>
+              </Press>
+            </FadeUp>
+            {posts.length === 0 && <Text style={styles.muted}>Sin publicaciones todavía.</Text>}
+            {posts.map((p, i) => (
+              <FadeUp key={p.id} index={i + 1}>
+                <View style={styles.card}>
+                  <View style={styles.cardHead}>
+                    <Pill color={colorBizInk} soft={colorBizSoft}>{p.kind}</Pill>
+                    <Text style={styles.rowDate}>{String(p.createdAt || "").slice(0, 10)}</Text>
+                  </View>
+                  <Text style={styles.cardT}>{p.title}</Text>
+                  {p.description ? <Text style={styles.rowS}>{p.description}</Text> : null}
                 </View>
-              </View>
+              </FadeUp>
             ))}
           </View>
         )}
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -796,61 +1073,90 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fbfaf7" },
-  loginCard: { flexGrow: 1, justifyContent: "center", padding: 24 },
   brand: { fontSize: 30, fontWeight: "900", color: "#12211a" },
   appTag: { fontSize: 11, fontWeight: "800", letterSpacing: 1.5, marginTop: 4 },
-  title: { fontSize: 22, fontWeight: "800", color: "#12211a", marginTop: 12, marginBottom: 16 },
+  lead: { fontSize: 13, color: "#5f7167", marginTop: 2 },
+  loginCard: { flexGrow: 1, justifyContent: "center", padding: 24 },
+  chooseCard: { flexGrow: 1, justifyContent: "center", padding: 24 },
+  title: { fontSize: 22, fontWeight: "800", color: "#12211a", marginTop: 10, marginBottom: 14 },
   field: { marginBottom: 12 },
   label: { fontSize: 13, fontWeight: "700", color: "#45564c", marginBottom: 6 },
   input: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#dbe1d8", borderRadius: 12, padding: 12, fontSize: 15, color: "#12211a" },
-  btn: { backgroundColor: GREEN, borderRadius: 999, padding: 15, alignItems: "center", marginTop: 6 },
+  btn: { borderRadius: 999, padding: 15, alignItems: "center", marginTop: 6 },
   btnTxt: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  btnGhost: { borderWidth: 1.5, borderRadius: 999, padding: 12, alignItems: "center", marginTop: 10 },
+  btnGhostTxt: { fontWeight: "800", fontSize: 13 },
   err: { color: "#e11d48", fontWeight: "700", marginBottom: 8 },
-  ok: { color: "#15803d", fontWeight: "700", marginBottom: 8 },
-  hint: { color: "#5f7167", fontSize: 12, marginTop: 14, textAlign: "center" },
+  okMsg: { color: "#15803d", fontWeight: "700", marginBottom: 8 },
   muted: { color: "#5f7167", fontSize: 13 },
+  hint: { color: "#5f7167", fontSize: 12, marginTop: 14, textAlign: "center" },
   linkBtn: { marginTop: 10 },
   link: { color: "#15803d", fontWeight: "800", textAlign: "center" },
+
+  // Selector de negocio
+  choice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderWidth: 2,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 14,
+  },
+  choiceIcon: { fontSize: 34 },
+  choiceT: { fontSize: 19, fontWeight: "900", color: "#12211a" },
+  choiceS: { fontSize: 12.5, color: "#45564c", marginTop: 4, lineHeight: 19 },
+
+  // Cabecera
+  header: { paddingTop: 56, paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#dbe1d8" },
   headerRow: { flexDirection: "row", alignItems: "flex-start" },
   avatar: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginRight: 10 },
   avatarTxt: { color: "#04150a", fontWeight: "900", fontSize: 18 },
+  hello: { fontSize: 18, fontWeight: "900", color: "#12211a" },
+  sub: { fontSize: 12, color: "#5f7167", marginTop: 2 },
   subRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 5, flexWrap: "wrap" },
-  kpiRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   logoutBtn: { backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#dbe1d8", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6, marginLeft: 10 },
   logoutTxt: { color: "#45564c", fontWeight: "800", fontSize: 12 },
-  header: { paddingTop: 56, paddingHorizontal: 18, paddingBottom: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#dbe1d8" },
-  hello: { fontSize: 22, fontWeight: "900", color: "#12211a" },
-  sub: { fontSize: 12, color: "#5f7167", marginTop: 2 },
-  tabs: { flexDirection: "row", gap: 8, marginTop: 12 },  tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f1f5e9" },
-  tabOn: { backgroundColor: "#12211a" },
+  kpiRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  tabs: { marginTop: 12 },
+  tab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999, backgroundColor: "#f1f5e9", marginRight: 8 },
   tabTxt: { fontWeight: "700", color: "#45564c" },
   tabTxtOn: { color: "#fff" },
+
+  // Cuerpo
   body: { flex: 1, padding: 16 },
-  card: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#dbe1d8", borderRadius: 20, padding: 18, marginBottom: 14 },
-  cardT: { fontSize: 16, fontWeight: "800", color: "#12211a", marginBottom: 10 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: "#dbe1d8" },
-  chipOn: { backgroundColor: "#dcfce7", borderColor: GREEN },
-  chipTxt: { color: "#5f7167", fontSize: 12, fontWeight: "700" },
-  chipTxtOn: { color: "#15803d" },
+  card: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#dbe1d8", borderRadius: 18, padding: 14, marginBottom: 12 },
+  cardHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  cardT: { fontSize: 15, fontWeight: "900", color: "#12211a" },
   row: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#dbe1d8", borderRadius: 14, padding: 12, marginBottom: 8 },
+  rowIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", marginRight: 10 },
+  rowIconTxt: { fontWeight: "900", fontSize: 14 },
   rowT: { fontSize: 14, fontWeight: "800", color: "#12211a" },
   rowS: { fontSize: 12, color: "#5f7167", marginTop: 2 },
-  del: { color: "#e11d48", fontWeight: "700" },
-});
+  rowDate: { fontSize: 11, color: "#5f7167", fontWeight: "700" },
 
-// --- Estilos del rediseño (servicio) ---
-const sv = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#dbe1d8",
-    borderRadius: 18,
-    padding: 12,
-    marginBottom: 10,
-  },
-  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#ffedd5", alignItems: "center", justifyContent: "center", marginRight: 10 },
-  avatarTxt: { fontWeight: "900", color: "#c2410c", fontSize: 16 },
+  // Logros y accesos
+  logroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
+  logro: { width: "47%", flexGrow: 1, borderWidth: 1, borderColor: "#dbe1d8", borderRadius: 14, padding: 12, alignItems: "center", backgroundColor: "#fbfaf7" },
+  logroT: { fontSize: 12, fontWeight: "800", color: "#12211a", textAlign: "center", marginTop: 6 },
+  logroS: { fontSize: 10, color: "#5f7167", fontWeight: "700", marginTop: 2, textTransform: "uppercase", letterSpacing: 0.6 },
+  quickRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  quick: { width: "47%", flexGrow: 1, borderWidth: 1.5, borderRadius: 18, padding: 14, alignItems: "center", backgroundColor: "#fff", marginBottom: 4 },
+  quickT: { fontSize: 12, fontWeight: "800", color: "#12211a", marginTop: 6 },
+
+  // Ventas
+  weekLabels: { flexDirection: "row", gap: 4, marginTop: 6 },
+  weekL: { flex: 1, textAlign: "center", fontSize: 10, color: "#5f7167", fontWeight: "700" },
+  topBox: { marginTop: 12, backgroundColor: "#f1f5e9", borderRadius: 14, padding: 12 },
+  topT: { fontSize: 10, fontWeight: "800", color: "#5f7167", textTransform: "uppercase", letterSpacing: 0.6 },
+  topV: { fontSize: 15, fontWeight: "900", color: "#12211a", marginTop: 3 },
+
+  // Formularios
+  twoCols: { flexDirection: "row", alignItems: "flex-start" },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 6 },
+  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: "#f1f5e9", borderWidth: 1.5, borderColor: "#dbe1d8" },
+  chipTxt: { fontSize: 12, fontWeight: "800", color: "#45564c" },
+  chipTxtOn: { color: "#fff" },
+  del: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: "#ffe4e6" },
+  delTxt: { color: "#9f1239", fontWeight: "800", fontSize: 12 },
 });

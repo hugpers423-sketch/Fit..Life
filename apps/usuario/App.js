@@ -205,6 +205,7 @@ export default function App() {
   const [fEnd, setFEnd] = useState("");
   const [syncAt, setSyncAt] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [celebrar, setCelebrar] = useState(false);
 
   // Refresca el "hace Xs" sin recargar datos.
   useEffect(() => {
@@ -495,6 +496,7 @@ export default function App() {
         });
       } catch (_) {}
       setOk("¡Membresía PREMIUM activa! Nutricionista + entrenador asignados a tu seguimiento.");
+      celebrarLogro();
     } catch (e) {
       setError(e.message);
     }
@@ -510,6 +512,11 @@ export default function App() {
     const end = toH(profile?.workEnd) ?? 18;
     if (end + 1 <= 22) return { h: end + 1, why: `al salir del trabajo (${profile?.workEnd || "18:00"})` };
     return { h: wake + 1, why: `al levantarte (${profile?.wakeTime || "06:00"})` };
+  }
+
+  function celebrarLogro() {
+    setCelebrar(true);
+    setTimeout(() => setCelebrar(false), 1000);
   }
 
   async function logConsumption(source, name, calories, proteinG, dishId, restaurantId) {
@@ -528,6 +535,7 @@ export default function App() {
         }),
       });
       setOk(`Registrado: ${name}. Tu admin lo ve en tu monitoreo.`);
+      celebrarLogro();
       load();
     } catch (e) {
       setError(e.message);
@@ -541,6 +549,7 @@ export default function App() {
         body: JSON.stringify({ userId: user.id, gymId }),
       });
       setOk(`Visita registrada en ${gymName} a las ${v.hour}:00.`);
+      celebrarLogro();
       load();
     } catch (e) {
       setError(e.message);
@@ -674,6 +683,7 @@ export default function App() {
       >
         {error !== "" && <Text style={styles.err}>{error}</Text>}
         {ok !== "" && <Text style={styles.ok}>{ok}</Text>}
+        {celebrar && <Confetti count={16} />}
 
         {tab === "hoy" && (
           <View>

@@ -69,7 +69,20 @@ function bearerToken(req) {
 
 async function authMiddleware(req, res, next) {
   try {
-    if (req.method === "GET" && OPEN_GET.has(req.path)) return next();
+    // Catálogos de lectura: se permiten sin token (para que la app de usuario
+    // pueda explorar), pero si viene un token se valida para poder aplicar
+    // el aislamiento por negocio (un vendedor solo ve lo suyo).
+    if (req.method === "GET" && OPEN_GET.has(req.path)) {
+      const tok = bearerToken(req);
+      if (!tok) return next();
+      try {
+        const row = await prisma.token.findUnique({ where: { token: tok }, include: { user: true } });
+        if (row && row.user && !row.revokedAt && row.expiresAt && row.expiresAt.getTime() > Date.now()) {
+          req.authUser = row.user;
+        }
+      } catch (e) { /* sigue como anónimo */ }
+      return next();
+    }
     const PUBLIC_POST = new Set([
       "/api/auth/login",
       "/api/auth/register",
@@ -322,7 +335,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
 // USER CREATION - Solo SUPER_ADMIN (el registro público es /api/auth/register)
 // ============================================
 app.post("/api/users", need("SUPER_ADMIN"), async (req, res) => {
-  const { email, name, role, specialty, password } = req.body || {};
+  const { email, name, role, specialty, password, businessType } = req.body || {};
   if (!email || !name || !role) {
     return res.status(400).json({ error: "email, name y role son obligatorios" });
   }
@@ -330,6 +343,11 @@ app.post("/api/users", need("SUPER_ADMIN"), async (req, res) => {
   const validRoles = ["SUPER_ADMIN", "VENDEDOR", "USUARIO", "ORIENTADOR", "QUIOSK"];
   if (!validRoles.includes(role)) {
     return res.status(400).json({ error: "Role inválido" });
+  }
+  const validBusiness = ["GIMNASIO", "RESTAURANTE"];
+  const biz = businessType && validBusiness.includes(businessType) ? businessType : null;
+  if (role === "VENDEDOR" && !biz) {
+    return res.status(400).json({ error: "Un vendedor debe ser GIMNASIO o RESTAURANTE" });
   }
   if (password != null && String(password).length < 8) {
     return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
@@ -342,6 +360,7 @@ app.post("/api/users", need("SUPER_ADMIN"), async (req, res) => {
         name: String(name).trim(),
         role: role,
         specialty: specialty ? String(specialty).trim() : null,
+        businessType: role === "VENDEDOR" ? biz : null,
         passwordHash: password ? hashPassword(password) : null,
       },
     });
@@ -360,7 +379,21 @@ app.post("/api/users", need("SUPER_ADMIN"), async (req, res) => {
 
 // GET meals - Cada rol ve sus propias comidas o todas (SUPER_ADMIN)
 app.get("/api/meals", async (req, res) => {
-  // El rol y el dueño salen del token verificado, nunca del query.
+  // Un restaurante (VENDEDOR) ve las comidas de SU restaurante: son sus ventas.
+  if (req.authUser.role === "VENDEDOR" && req.query.restaurantId) {
+    const rid = String(req.query.restaurantId);
+    try {
+      const rest = await prisma.restaurant.findUnique({ where: { id: rid }, select: { ownerId: true } });
+      if (!rest || rest.ownerId !== req.authUser.id) {
+        return res.status(403).json({ error: "Ese restaurante no es tuyo" });
+      }
+      const meals = await prisma.meal.findMany({ where: { restaurantId: rid }, orderBy: { createdAt: "desc" } });
+      return res.json(meals);
+    } catch (error) {
+      return res.status(500).json({ error: "No se pudieron obtener las comidas" });
+    }
+  }
+
   const isAdmin = req.authUser.role === "SUPER_ADMIN";
   const target = isAdmin && req.query.userId ? String(req.query.userId) : req.authUser.id;
   const where = { userId: target };
@@ -552,16 +585,83 @@ app.get("/api/admin/users", async (req, res) => {
 // GET clientes (solo usuarios con rol USUARIO) - ORIENTADOR/VENDEDOR/SUPER_ADMIN.
 // Endpoint dedicado para las apps móviles que gestionan clientes: no expone
 // la tabla completa de usuarios (ni otros roles ni datos sensibles).
+// AISLAMIENTO: un negocio (VENDEDOR) solo ve los clientes de SU propio negocio.
 app.get("/api/clients", need("SUPER_ADMIN", "ORIENTADOR", "VENDEDOR"), async (req, res) => {
   try {
+    const me = req.authUser;
+    const shape = {
+      id: true, email: true, name: true, role: true, membership: true, createdAt: true,
+    };
+
+    if (me && me.role === "VENDEDOR") {
+      // Sin tipo de negocio definido todavía: no ve a nadie hasta que elija.
+      if (!me.businessType) return res.json([]);
+
+      if (me.businessType === "GIMNASIO") {
+        const gymIds = (await prisma.gym.findMany({ where: { ownerId: me.id }, select: { id: true } })).map((g) => g.id);
+        if (gymIds.length === 0) return res.json([]);
+        const visits = await prisma.visit.findMany({
+          where: { gymId: { in: gymIds } },
+          select: { userId: true },
+          distinct: ["userId"],
+        });
+        const ids = [...new Set(visits.map((v) => v.userId).filter(Boolean))];
+        if (ids.length === 0) return res.json([]);
+        const clients = await prisma.user.findMany({
+          where: { id: { in: ids }, role: "USUARIO" },
+          select: shape,
+          orderBy: { createdAt: "asc" },
+        });
+        return res.json(clients);
+      }
+
+      // RESTAURANTE: clientes que pidieron platos de este restaurante.
+      const restIds = (await prisma.restaurant.findMany({ where: { ownerId: me.id }, select: { id: true } })).map((r) => r.id);
+      if (restIds.length === 0) return res.json([]);
+      const meals = await prisma.meal.findMany({
+        where: { restaurantId: { in: restIds } },
+        select: { userId: true },
+        distinct: ["userId"],
+      });
+      const ids = [...new Set(meals.map((m) => m.userId).filter(Boolean))];
+      if (ids.length === 0) return res.json([]);
+      const clients = await prisma.user.findMany({
+        where: { id: { in: ids }, role: "USUARIO" },
+        select: shape,
+        orderBy: { createdAt: "asc" },
+      });
+      return res.json(clients);
+    }
+
     const clients = await prisma.user.findMany({
       where: { role: "USUARIO" },
-      select: { id: true, email: true, name: true, role: true, membership: true, createdAt: true },
+      select: shape,
       orderBy: { createdAt: "asc" },
     });
     res.json(clients);
   } catch (error) {
     res.status(500).json({ error: "No se pudieron obtener los clientes" });
+  }
+});
+
+// Un vendedor define con qué tipo de negocio opera (una sola vez).
+// A partir de ahí su app solo muestra y gestiona SU negocio.
+app.patch("/api/users/business-type", need("VENDEDOR", "SUPER_ADMIN"), async (req, res) => {
+  const { businessType, userId } = req.body || {};
+  const valid = ["GIMNASIO", "RESTAURANTE"];
+  if (!valid.includes(businessType)) {
+    return res.status(400).json({ error: "businessType debe ser GIMNASIO o RESTAURANTE" });
+  }
+  // Un vendedor solo puede definirlo para sí mismo; el admin para cualquiera.
+  const targetId = req.authUser.role === "SUPER_ADMIN" && userId ? String(userId) : req.authUser.id;
+  try {
+    const updated = await prisma.user.update({
+      where: { id: targetId },
+      data: { businessType },
+    });
+    res.json({ user: publicUser(updated) });
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo guardar el tipo de negocio" });
   }
 });
 
@@ -600,6 +700,16 @@ app.get("/api/admin/stats/workouts", need("SUPER_ADMIN", "ORIENTADOR"), async (r
 app.get("/api/posts", async (req, res) => {
   const { authorId, kind } = req.query;
   try {
+    // Un negocio (VENDEDOR) sin filtro solo ve SUS publicaciones.
+    if (req.authUser && req.authUser.role === "VENDEDOR" && !authorId) {
+      const mios = await prisma.post.findMany({
+        where: { authorId: req.authUser.id },
+        include: { author: { select: { id: true, name: true, role: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      return res.json(mios);
+    }
     const posts = await prisma.post.findMany({
       where: {
         ...(authorId ? { authorId: String(authorId) } : {}),
@@ -748,6 +858,16 @@ app.post("/api/payments", ownBody("userId"), async (req, res) => {
 app.get("/api/dishes", async (req, res) => {
   const { restaurantId, day } = req.query;
   try {
+    // Un restaurante (VENDEDOR) solo ve SU carta, no la de otros negocios.
+    if (req.authUser && req.authUser.role === "VENDEDOR" && !restaurantId) {
+      const mios = await prisma.restaurant.findMany({ where: { ownerId: req.authUser.id }, select: { id: true } });
+      if (mios.length === 0) return res.json([]);
+      const dishes = await prisma.dish.findMany({
+        where: { restaurantId: { in: mios.map((r) => r.id) } },
+        orderBy: [{ day: "asc" }, { createdAt: "desc" }],
+      });
+      return res.json(dishes);
+    }
     const dishes = await prisma.dish.findMany({
       where: {
         ...(restaurantId ? { restaurantId: String(restaurantId) } : {}),
@@ -810,6 +930,17 @@ app.delete("/api/dishes/:id", async (req, res) => {
 app.get("/api/products", async (req, res) => {
   const { gymId, approved } = req.query;
   try {
+    const me = req.authUser;
+    // Un negocio (VENDEDOR) solo ve los productos de SUS gimnasios.
+    if (me && me.role === "VENDEDOR" && !gymId) {
+      const gymIds = (await prisma.gym.findMany({ where: { ownerId: me.id }, select: { id: true } })).map((g) => g.id);
+      if (gymIds.length === 0) return res.json([]);
+      const products = await prisma.product.findMany({
+        where: { gymId: { in: gymIds } },
+        orderBy: { createdAt: "desc" },
+      });
+      return res.json(products);
+    }
     const products = await prisma.product.findMany({
       where: {
         ...(gymId ? { gymId: String(gymId) } : {}),
@@ -861,6 +992,15 @@ app.patch("/api/products/:id/approve", need("ORIENTADOR", "SUPER_ADMIN"), async 
 app.get("/api/gyms", async (req, res) => {
   const { ownerId } = req.query;
   try {
+    // Un negocio (VENDEDOR) solo ve SUS gimnasios, nunca los de otro rubro.
+    if (req.authUser && req.authUser.role === "VENDEDOR" && !ownerId) {
+      const mios = await prisma.gym.findMany({
+        where: { ownerId: req.authUser.id },
+        include: { owner: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+      return res.json(mios);
+    }
     const gyms = await prisma.gym.findMany({
       where: ownerId ? { ownerId: String(ownerId) } : {},
       include: { owner: { select: { id: true, name: true, email: true } } },
@@ -915,6 +1055,15 @@ app.delete("/api/gyms/:id", need("SUPER_ADMIN"), async (req, res) => {
 app.get("/api/restaurants", async (req, res) => {
   const { ownerId } = req.query;
   try {
+    // Un negocio (VENDEDOR) solo ve SUS restaurantes.
+    if (req.authUser && req.authUser.role === "VENDEDOR" && !ownerId) {
+      const mios = await prisma.restaurant.findMany({
+        where: { ownerId: req.authUser.id },
+        include: { owner: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+      return res.json(mios);
+    }
     const restaurants = await prisma.restaurant.findMany({
       where: ownerId ? { ownerId: String(ownerId) } : {},
       include: { owner: { select: { id: true, name: true, email: true } } },
@@ -1038,6 +1187,28 @@ app.patch("/api/users/membership", ownBody("userId"), async (req, res) => {
 app.get("/api/visits", async (req, res) => {
   const { gymId, userId } = req.query;
   try {
+    // Un negocio (VENDEDOR) solo ve las visitas de SU gimnasio.
+    if (req.authUser && req.authUser.role === "VENDEDOR" && !gymId) {
+      const gymIds = (await prisma.gym.findMany({ where: { ownerId: req.authUser.id }, select: { id: true } })).map((g) => g.id);
+      if (gymIds.length === 0) return res.json([]);
+      const visits = await prisma.visit.findMany({
+        where: { gymId: { in: gymIds } },
+        include: {
+          user: { select: { id: true, name: true } },
+          gym: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      });
+      return res.json(visits);
+    }
+    // Un gimnasio concreto solo puede consultarlo su dueño.
+    if (req.authUser && req.authUser.role === "VENDEDOR" && gymId) {
+      const gym = await prisma.gym.findUnique({ where: { id: String(gymId) }, select: { ownerId: true } });
+      if (!gym || gym.ownerId !== req.authUser.id) {
+        return res.status(403).json({ error: "Ese gimnasio no es tuyo" });
+      }
+    }
     const visits = await prisma.visit.findMany({
       where: {
         ...(gymId ? { gymId: String(gymId) } : {}),

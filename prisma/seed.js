@@ -24,12 +24,14 @@ async function main() {
         name: `${role} NutriFlow`,
         role: role,
         specialty: role === 'ORIENTADOR' ? 'NUTRICIONISTA' : null,
+        businessType: role === 'VENDEDOR' ? 'GIMNASIO' : null,
         passwordHash,
       },
       create: {
         email,
         name: `${role} NutriFlow`,
         role: role,
+        businessType: role === 'VENDEDOR' ? 'GIMNASIO' : null,
         passwordHash,
       },
     });
