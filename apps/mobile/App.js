@@ -14,7 +14,7 @@ import { FadeUp, useReduceMotion } from "./nfui";
 
 // URL de la API: usa app.json (extra.apiUrl) si existe, si no la IP LAN de tu PC.
 // En emulador Android usa http://10.0.2.2:3001 ; en iOS/web http://localhost:3001
-let API_URL = "http://192.168.18.167:3001";
+let API_URL = "http://localhost:3001";
 try {
   const Constants = require("expo-constants").default;
   const cfg = (Constants && Constants.expoConfig && Constants.expoConfig.extra && Constants.expoConfig.extra.apiUrl)
@@ -132,6 +132,34 @@ function timeAgo(d, now) {
   return `hace ${Math.floor(s / 3600)} h`;
 }
 
+// Una linea del panel de salud: etiqueta, valor y barra proporcional.
+function StatLine({ label, value, max, total, color }) {
+  const pct = Math.max(2, Math.round((Number(total) / Math.max(1, max)) * 100));
+  return (
+    <View style={adm.statLine}>
+      <View style={adm.statHead}>
+        <Text style={adm.statLabel}>{label}</Text>
+        <Text style={adm.statValue}>{value}</Text>
+      </View>
+      <View style={adm.barTrack}>
+        <View style={[adm.barFill, { width: `${pct}%`, backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+}
+
+// Accion compacta dentro de una fila (premium, eliminar…).
+function MiniAction({ label, on, danger, onPress }) {
+  return (
+    <TouchableOpacity
+      style={[adm.mini, on && adm.miniOn, danger && adm.miniDanger]}
+      onPress={onPress}
+    >
+      <Text style={[adm.miniTxt, on && adm.miniTxtOn, danger && adm.miniTxtDanger]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function App() {
   const [users, setUsers] = useState([]);
   const [meals, setMeals] = useState([]);
@@ -157,6 +185,22 @@ export default function App() {
   const [newPass, setNewPass] = useState("");
   const [resetToken, setResetToken] = useState("");
   const [ok, setOk] = useState("");
+
+  // --- Sprint C: gestion real (tabs, alta/edicion/baja) ---
+  const [tab, setTab] = useState("resumen"); // resumen | usuarios | contenido | negocios
+  const [overview, setOverview] = useState(null);
+  const [posts, setPosts] = useState([]);
+  const [gyms, setGyms] = useState([]);
+  const [restaurants, setRestaurants] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [busyId, setBusyId] = useState("");
+  const [nName, setNName] = useState("");
+  const [nEmail, setNEmail] = useState("");
+  const [nRole, setNRole] = useState("USUARIO");
+  const [nBiz, setNBiz] = useState("GIMNASIO");
+  const [nSpec, setNSpec] = useState("");
+  const [nPass, setNPass] = useState("");
+  const [confirmDel, setConfirmDel] = useState(null); // { id, label } o null
 
   async function login() {
     setBusy(true);
@@ -243,14 +287,23 @@ export default function App() {
 
   const load = useCallback(async () => {
     try {
-      const [u, m, w] = await Promise.all([
+      const [u, m, w, ov, po, gy, re] = await Promise.all([
         af(`/api/admin/users?role=SUPER_ADMIN`),
         af(`/api/meals?role=SUPER_ADMIN`),
         af(`/api/workouts?role=SUPER_ADMIN`),
+        af(`/api/admin/stats/overview`).catch(() => null),
+        af(`/api/posts`).catch(() => []),
+        af(`/api/gyms`).catch(() => []),
+        af(`/api/restaurants`).catch(() => []),
       ]);
-      setUsers(u);
-      setMeals(m.ok !== false ? m : []);
-      setWorkouts(w.ok !== false ? w : []);
+      setUsers(Array.isArray(u) ? u : u?.data || []);
+      const arr = (x) => (Array.isArray(x) ? x : Array.isArray(x?.data) ? x.data : []);
+      setMeals(arr(m));
+      setWorkouts(arr(w));
+      setOverview(ov);
+      setPosts(Array.isArray(po) ? po : po?.data || []);
+      setGyms(Array.isArray(gy) ? gy : gy?.data || []);
+      setRestaurants(Array.isArray(re) ? re : re?.data || []);
       setError("");
       setSyncAt(new Date());
     } catch (e) {
@@ -310,6 +363,92 @@ export default function App() {
     return () => { vivo = false; clearInterval(id); };
   }, [token, load]);
 
+  // --- Sprint C: alta de usuario ---
+  async function createUser() {
+    setError("");
+    setOk("");
+    if (!nEmail.trim() || !nName.trim()) {
+      setError("Correo y nombre son obligatorios.");
+      return;
+    }
+    if (nPass && nPass.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    setBusyId("create");
+    try {
+      const created = await af(`/api/users`, {
+        method: "POST",
+        body: JSON.stringify({
+          email: nEmail.trim(),
+          name: nName.trim(),
+          role: nRole,
+          specialty: nSpec.trim() || null,
+          businessType: nRole === "VENDEDOR" ? nBiz : null,
+          password: nPass || null,
+        }),
+      });
+      setOk(`${created.name} creado como ${created.role}.`);
+      setNName(""); setNEmail(""); setNSpec(""); setNPass(""); setShowForm(false);
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  // --- Sprint C: edicion de rol / membresia ---
+  async function updateUser(id, patch) {
+    setError("");
+    setOk("");
+    setBusyId(id);
+    try {
+      await af(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setOk("Usuario actualizado.");
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  // --- Sprint C: bajas ---
+  async function removeUser() {
+    if (!confirmDel) return;
+    const { id, label } = confirmDel;
+    setError("");
+    setOk("");
+    setBusyId(id);
+    try {
+      await af(`/api/users/${id}`, { method: "DELETE" });
+      setOk(`${label} eliminado.`);
+      setConfirmDel(null);
+      load();
+    } catch (e) {
+      setError(e.message);
+      setConfirmDel(null);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function removeResource(path, id, label) {
+    setError("");
+    setOk("");
+    setBusyId(id);
+    try {
+      await af(`${path}/${id}`, { method: "DELETE" });
+      setOk(`${label} eliminado.`);
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
   const byRole = users.reduce((acc, u) => {
     acc[u.role] = (acc[u.role] || 0) + 1;
     return acc;
@@ -320,13 +459,19 @@ export default function App() {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .slice(0, 5);
 
+  const mealsTotal = (overview?.meals?.byRole || []).reduce((a, r) => a + r.total, 0);
   const kpis = [
-    { label: "Usuarios", value: String(users.length), color: "#22c55e" },       // brand-vivid
-    { label: "Comidas", value: String(meals.length), color: "#14b8a6" },        // teal-vivid
-    { label: "Entrenos", value: String(workouts.length), color: "#f59e0b" },    // amber-vivid
+    { label: "Usuarios", value: String(overview?.users?.total ?? users.length), color: "#22c55e" },       // brand-vivid
+    { label: "Comidas", value: String(mealsTotal || meals.length), color: "#14b8a6" },                    // teal-vivid
+    { label: "Entrenos", value: String(overview?.workouts?.total ?? workouts.length), color: "#f59e0b" },// amber-vivid
     { label: "Orientadores", value: String(byRole.ORIENTADOR || 0), color: "#0f766e" }, // teal
     { label: "Vendedores", value: String(byRole.VENDEDOR || 0), color: "#fb7185" },     // coral-vivid
   ];
+
+  const TABS = [["resumen", "Resumen"], ["usuarios", "Usuarios"], ["contenido", "Contenido"], ["negocios", "Negocios"]];
+  const cats = overview?.catalog || {};
+  const maxComidas = Math.max(1, ...(overview?.meals?.byRole || []).map((r) => r.total));
+  const maxUsers = Math.max(1, ...(overview?.users?.byRole || []).map((r) => r.total));
 
   return (
     <View style={styles.root}>
@@ -418,82 +563,262 @@ export default function App() {
             </View>
           )}
 
-          <FadeUp index={0}>
-            <Text style={styles.section}>Plataforma en general</Text>
-            <View style={styles.kpiGrid}>
-              {kpis.map((k) => (
-                <View key={k.label} style={styles.kpi}>
-                  <Text style={styles.kpiLabel}>{k.label}</Text>
-                  <Text style={styles.kpiVal}>{k.value}</Text>
-                  <View style={[styles.kpiBar, { backgroundColor: k.color }]} />
-                </View>
-              ))}
-            </View>
-          </FadeUp>
-
-          <FadeUp index={1}>
-            <Text style={styles.section}>Apps independientes</Text>
-            {["USUARIO", "ORIENTADOR", "VENDEDOR"].map((r) => (
-              <View key={r} style={styles.appCard}>
-                <View style={[styles.dot, { backgroundColor: ROLE_COLORS[r] }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.appName}>
-                    {r === "USUARIO" ? "App Usuario" : r === "ORIENTADOR" ? "App Orientador" : "App Vendedor"}
-                  </Text>
-                  <Text style={styles.appSub}>
-                    {(byRole[r] || 0)} cuentas · {meals.filter((m) => users.find((u) => u.id === m.userId)?.role === r).length} comidas
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </FadeUp>
-
-          <FadeUp index={2}>
-            <Text style={styles.section}>Usuarios</Text>
-          </FadeUp>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
-            {FILTERS.map((f) => (
-              <TouchableOpacity
-                key={f}
-                style={[styles.chip, filter === f && styles.chipOn]}
-                onPress={() => setFilter(f)}
-              >
-                <Text style={[styles.chipTxt, filter === f && styles.chipTxtOn]}>{f}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
+            {TABS.map(([k, label]) => (
+              <TouchableOpacity key={k} style={[styles.tab, tab === k && styles.tabOn]} onPress={() => { setTab(k); setError(""); setOk(""); setConfirmDel(null); }}>
+                <Text style={[styles.tabTxt, tab === k && styles.tabTxtOn]}>{label}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
-          {shown.map((u, i) => (
-            <FadeUp key={u.id} index={i} delay={i * 35}>
-              <View style={styles.row}>
-                <View style={[styles.avatar, { backgroundColor: ROLE_COLORS[u.role] || "#475569" }]}>
-                  <Text style={styles.avatarTxt}>
-                    {String(u.name || "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowName}>{u.name}</Text>
-                  <Text style={styles.rowMail}>{u.email}</Text>
-                </View>
-                <Text style={[styles.role, { color: ROLE_COLORS[u.role] || C.muted }]}>{u.role}</Text>
-              </View>
-            </FadeUp>
-          ))}
 
-          <FadeUp index={2}>
-            <Text style={styles.section}>Actividad reciente</Text>
-          </FadeUp>
-          {recent.length === 0 && <Text style={styles.muted}>Sin actividad todavía.</Text>}
-          {recent.map((m, i) => (
-            <FadeUp key={m.id} index={i} delay={i * 40}>
-              <View style={styles.row}>
-                <View style={styles.liveDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowName}>{m.type} — {m.calories ?? 0} kcal</Text>
-                  <Text style={styles.rowMail}>{new Date(m.createdAt).toLocaleString("es")}</Text>
+          {ok !== "" && <Text style={styles.okTxt}>{ok}</Text>}
+
+          {/* ============ TAB: RESUMEN ============ */}
+          {tab === "resumen" && (
+            <View>
+              <FadeUp index={0}>
+                <Text style={styles.section}>Plataforma en general</Text>
+                <View style={styles.kpiGrid}>
+                  {kpis.map((k) => (
+                    <View key={k.label} style={styles.kpi}>
+                      <Text style={styles.kpiLabel}>{k.label}</Text>
+                      <Text style={styles.kpiVal}>{k.value}</Text>
+                      <View style={[styles.kpiBar, { backgroundColor: k.color }]} />
+                    </View>
+                  ))}
                 </View>
-              </View>
-            </FadeUp>
-          ))}
+              </FadeUp>
+
+              <FadeUp index={1}>
+                <Text style={styles.section}>Salud de la plataforma</Text>
+                <View style={styles.card}>
+                  <StatLine label="Ingresos registrados" value={`S/ ${Number(overview?.revenue?.amount || 0).toFixed(2)}`} total={overview?.revenue?.payments || 0} max={Math.max(1, overview?.revenue?.payments || 0)} color="#15803d" />
+                  <StatLine label="Entrenos" value={String(overview?.workouts?.total ?? workouts.length)} total={overview?.workouts?.total ?? workouts.length} max={Math.max(1, overview?.workouts?.total ?? 1)} color="#f59e0b" />
+                  <StatLine label="Visitas a gimnasios" value={String(cats.visits ?? 0)} total={cats.visits ?? 0} max={Math.max(1, cats.visits ?? 1)} color="#14b8a6" />
+                  <StatLine label="Publicaciones" value={String(overview?.content?.posts ?? posts.length)} total={overview?.content?.posts ?? posts.length} max={Math.max(1, overview?.content?.posts ?? 1)} color="#fb7185" />
+                  <StatLine label="Sesiones" value={String(overview?.content?.sessions ?? 0)} total={overview?.content?.sessions ?? 0} max={Math.max(1, overview?.content?.sessions ?? 1)} color="#0f766e" />
+                </View>
+              </FadeUp>
+
+              <FadeUp index={2}>
+                <Text style={styles.section}>Comidas registradas por rol</Text>
+                <View style={styles.card}>
+                  {(overview?.meals?.byRole || []).length === 0 && <Text style={styles.muted}>Sin datos.</Text>}
+                  {(overview?.meals?.byRole || []).map((r) => (
+                    <View key={r.role} style={styles.barRow}>
+                      <Text style={[styles.barLabel, { color: ROLE_COLORS[r.role] || C.text2 }]}>{r.role}</Text>
+                      <View style={styles.barTrack}>
+                        <View style={[styles.barFill, { width: `${Math.round((r.total / maxComidas) * 100)}%`, backgroundColor: ROLE_COLORS[r.role] || C.brandVivid }]} />
+                      </View>
+                      <Text style={styles.barVal}>{r.total}</Text>
+                    </View>
+                  ))}
+                </View>
+              </FadeUp>
+
+              <FadeUp index={3}>
+                <Text style={styles.section}>Cuentas por rol</Text>
+                <View style={styles.card}>
+                  {(overview?.users?.byRole || []).map((r) => (
+                    <View key={r.role} style={styles.barRow}>
+                      <Text style={[styles.barLabel, { color: ROLE_COLORS[r.role] || C.text2 }]}>{r.role}</Text>
+                      <View style={styles.barTrack}>
+                        <View style={[styles.barFill, { width: `${Math.round((r.total / maxUsers) * 100)}%`, backgroundColor: ROLE_COLORS[r.role] || C.brandVivid }]} />
+                      </View>
+                      <Text style={styles.barVal}>{r.total}</Text>
+                    </View>
+                  ))}
+                </View>
+              </FadeUp>
+
+              <FadeUp index={4}>
+                <Text style={styles.section}>Actividad reciente</Text>
+              </FadeUp>
+              {recent.length === 0 && <Text style={styles.muted}>Sin actividad todavía.</Text>}
+              {recent.map((m, i) => (
+                <FadeUp key={m.id} index={i} delay={i * 40}>
+                  <View style={styles.row}>
+                    <View style={styles.liveDot} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowName}>{m.type} — {m.calories ?? 0} kcal</Text>
+                      <Text style={styles.rowMail}>{new Date(m.createdAt).toLocaleString("es")}</Text>
+                    </View>
+                  </View>
+                </FadeUp>
+              ))}
+            </View>
+          )}
+
+          {/* ============ TAB: USUARIOS ============ */}
+          {tab === "usuarios" && (
+            <View>
+              <TouchableOpacity style={[styles.primaryBtn, showForm && styles.primaryBtnGhost]} onPress={() => setShowForm(!showForm)}>
+                <Text style={styles.primaryBtnTxt}>{showForm ? "Cancelar alta" : "+ Nuevo usuario"}</Text>
+              </TouchableOpacity>
+
+              {showForm && (
+                <FadeUp index={0} style={styles.card}>
+                  <Text style={styles.cardT}>Alta de usuario</Text>
+                  <TextInput style={styles.input} placeholder="Nombre completo" placeholderTextColor={C.muted} value={nName} onChangeText={setNName} />
+                  <TextInput style={styles.input} placeholder="correo@ejemplo.com" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="email-address" value={nEmail} onChangeText={setNEmail} />
+                  <Text style={styles.label}>Rol</Text>
+                  <View style={styles.chipWrap}>
+                    {["USUARIO", "ORIENTADOR", "VENDEDOR", "QUIOSK", "SUPER_ADMIN"].map((r) => (
+                      <TouchableOpacity key={r} style={[styles.chip, nRole === r && styles.chipOn]} onPress={() => setNRole(r)}>
+                        <Text style={[styles.chipTxt, nRole === r && styles.chipTxtOn]}>{r}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {nRole === "VENDEDOR" && (
+                    <>
+                      <Text style={styles.label}>Rubro del negocio</Text>
+                      <View style={styles.chipWrap}>
+                        {["GIMNASIO", "RESTAURANTE"].map((b) => (
+                          <TouchableOpacity key={b} style={[styles.chip, nBiz === b && styles.chipOn]} onPress={() => setNBiz(b)}>
+                            <Text style={[styles.chipTxt, nBiz === b && styles.chipTxtOn]}>{b}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </>
+                  )}
+                  {nRole === "ORIENTADOR" && (
+                    <TextInput style={styles.input} placeholder="Especialidad (NUTRICIONISTA, ENTRENADOR…)" placeholderTextColor={C.muted} value={nSpec} onChangeText={setNSpec} />
+                  )}
+                  <TextInput style={styles.input} placeholder="Contraseña (mín. 8, opcional)" placeholderTextColor={C.muted} secureTextEntry value={nPass} onChangeText={setNPass} />
+                  <TouchableOpacity style={styles.primaryBtn} onPress={createUser} disabled={busyId === "create"}>
+                    <Text style={styles.primaryBtnTxt}>{busyId === "create" ? "Creando…" : "Crear usuario"}</Text>
+                  </TouchableOpacity>
+                </FadeUp>
+              )}
+
+              {confirmDel && (
+                <View style={styles.alert}>
+                  <Text style={styles.alertTxt}>¿Eliminar a {confirmDel.label}? Se borra todo su historial.</Text>
+                  <View style={styles.confirmRow}>
+                    <TouchableOpacity style={styles.dangerBtn} onPress={removeUser} disabled={busyId === confirmDel.id}>
+                      <Text style={styles.dangerBtnTxt}>{busyId === confirmDel.id ? "Eliminando…" : "Sí, eliminar"}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.ghostBtn} onPress={() => setConfirmDel(null)}>
+                      <Text style={styles.ghostBtnTxt}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+                {FILTERS.map((f) => (
+                  <TouchableOpacity key={f} style={[styles.chip, filter === f && styles.chipOn]} onPress={() => setFilter(f)}>
+                    <Text style={[styles.chipTxt, filter === f && styles.chipTxtOn]}>{f}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {shown.map((u, i) => (
+                <FadeUp key={u.id} index={i} delay={i * 25}>
+                  <View style={styles.row}>
+                    <View style={[styles.avatar, { backgroundColor: ROLE_COLORS[u.role] || "#475569" }]}>
+                      <Text style={styles.avatarTxt}>
+                        {String(u.name || "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowName}>{u.name}</Text>
+                      <Text style={styles.rowMail}>
+                        {u.email}
+                        {u.businessType ? ` · ${u.businessType}` : ""}
+                        {u.membership ? ` · ${u.membership}` : ""}
+                      </Text>
+                      <View style={styles.miniRow}>
+                        <MiniAction label="PREMIUM" on={u.membership === "PREMIUM"} onPress={() => updateUser(u.id, { membership: u.membership === "PREMIUM" ? "BASIC" : "PREMIUM" })} />
+                        {u.role !== "SUPER_ADMIN" && (
+                          <MiniAction label="Eliminar" danger onPress={() => setConfirmDel({ id: u.id, label: u.name })} />
+                        )}
+                      </View>
+                    </View>
+                    <Text style={[styles.role, { color: ROLE_COLORS[u.role] || C.muted }]}>{u.role}</Text>
+                  </View>
+                </FadeUp>
+              ))}
+            </View>
+          )}
+
+          {/* ============ TAB: CONTENIDO ============ */}
+          {tab === "contenido" && (
+            <View>
+              <Text style={styles.section}>Publicaciones ({posts.length})</Text>
+              {posts.length === 0 && <Text style={styles.muted}>No hay publicaciones todavía.</Text>}
+              {posts.map((p, i) => (
+                <FadeUp key={p.id} index={i} delay={i * 25}>
+                  <View style={styles.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowName}>{p.title || p.body || "Publicación"}</Text>
+                      <Text style={styles.rowMail}>
+                        {users.find((u) => u.id === p.authorId)?.name || "Autor"} · {new Date(p.createdAt).toLocaleDateString("es")}
+                      </Text>
+                    </View>
+                    <MiniAction label="Eliminar" danger onPress={() => removeResource("/api/posts", p.id, "Publicación")} />
+                  </View>
+                </FadeUp>
+              ))}
+
+              <Text style={styles.section}>Recetas publicadas</Text>
+              <Text style={styles.muted}>Las recetas se gestionan desde la app del profesional (Nutricionista / Entrenador).</Text>
+            </View>
+          )}
+
+          {/* ============ TAB: NEGOCIOS ============ */}
+          {tab === "negocios" && (
+            <View>
+              <FadeUp index={0}>
+                <Text style={styles.section}>Gimnasios ({gyms.length})</Text>
+                {gyms.length === 0 && <Text style={styles.muted}>Sin gimnasios registrados.</Text>}
+                {gyms.map((g, i) => (
+                  <FadeUp key={g.id} index={i} delay={i * 25}>
+                    <View style={styles.row}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.rowName}>{g.name}</Text>
+                        <Text style={styles.rowMail}>{users.find((u) => u.id === g.ownerId)?.name || "Sin dueño"} · {g.city || "—"}</Text>
+                      </View>
+                      <MiniAction label="Eliminar" danger onPress={() => removeResource("/api/gyms", g.id, "Gimnasio")} />
+                    </View>
+                  </FadeUp>
+                ))}
+              </FadeUp>
+
+              <FadeUp index={1}>
+                <Text style={styles.section}>Restaurantes ({restaurants.length})</Text>
+                {restaurants.length === 0 && <Text style={styles.muted}>Sin restaurantes registrados.</Text>}
+                {restaurants.map((r, i) => (
+                  <FadeUp key={r.id} index={i} delay={i * 25}>
+                    <View style={styles.row}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.rowName}>{r.name}</Text>
+                        <Text style={styles.rowMail}>{users.find((u) => u.id === r.ownerId)?.name || "Sin dueño"} · {r.cuisine || "—"}</Text>
+                      </View>
+                      <MiniAction label="Eliminar" danger onPress={() => removeResource("/api/restaurants", r.id, "Restaurante")} />
+                    </View>
+                  </FadeUp>
+                ))}
+              </FadeUp>
+
+              <FadeUp index={2}>
+                <Text style={styles.section}>Catálogo en la plataforma</Text>
+                <View style={styles.kpiGrid}>
+                  {[
+                    { l: "Platos", v: cats.dishes ?? 0, c: "#14b8a6" },
+                    { l: "Productos", v: cats.products ?? 0, c: "#f59e0b" },
+                    { l: "Visitas", v: cats.visits ?? 0, c: "#22c55e" },
+                  ].map((k) => (
+                    <View key={k.l} style={styles.kpi}>
+                      <Text style={styles.kpiLabel}>{k.l}</Text>
+                      <Text style={styles.kpiVal}>{k.v}</Text>
+                      <View style={[styles.kpiBar, { backgroundColor: k.c }]} />
+                    </View>
+                  ))}
+                </View>
+              </FadeUp>
+            </View>
+          )}
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
@@ -565,4 +890,44 @@ const styles = StyleSheet.create({
   input: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12, color: C.text, marginBottom: 10 },
   loginBtn: { backgroundColor: C.brandVivid, borderRadius: 10, padding: 12, alignItems: "center", marginTop: 4 },
   loginTxt: { color: C.onBrand, fontWeight: "800" },
+  // --- Sprint C: gestion real ---
+  tabBar: { marginBottom: 4, paddingVertical: 4 },
+  tab: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, marginRight: 8 },
+  tabOn: { backgroundColor: C.brandVivid, borderColor: C.brandVivid },
+  tabTxt: { color: C.muted, fontSize: 12, fontWeight: "800" },
+  tabTxtOn: { color: C.onBrand },
+  card: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 14, marginBottom: 12 },
+  cardT: { fontSize: 14, fontWeight: "800", color: C.text, marginBottom: 10 },
+  label: { fontSize: 11, fontWeight: "800", color: C.text2, marginBottom: 6, marginTop: 4 },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", marginBottom: 10 },
+  primaryBtn: { backgroundColor: C.brandVivid, borderRadius: 12, padding: 13, alignItems: "center", marginBottom: 12 },
+  primaryBtnGhost: { backgroundColor: "transparent", borderWidth: 1, borderColor: C.border },
+  primaryBtnTxt: { color: C.onBrand, fontWeight: "800", fontSize: 14 },
+  dangerBtn: { backgroundColor: C.coral, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" },
+  dangerBtnTxt: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  ghostBtn: { backgroundColor: "transparent", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center", borderWidth: 1, borderColor: C.border },
+  ghostBtnTxt: { color: C.muted, fontWeight: "800", fontSize: 13 },
+  confirmRow: { flexDirection: "row", gap: 10, marginTop: 10 },
+  barRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  barLabel: { width: 96, fontSize: 11, fontWeight: "800" },
+  barTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: C.surface2, overflow: "hidden" },
+  barFill: { height: 8, borderRadius: 4 },
+  barVal: { width: 30, textAlign: "right", fontSize: 12, fontWeight: "800", color: C.text },
+  miniRow: { flexDirection: "row", gap: 6, marginTop: 6 },
+});
+
+// Estilos de los componentes auxiliares del panel de gestion.
+const adm = StyleSheet.create({
+  statLine: { marginBottom: 12 },
+  statHead: { flexDirection: "row", justifyContent: "space-between", marginBottom: 5 },
+  statLabel: { fontSize: 12, fontWeight: "700", color: C.text2 },
+  statValue: { fontSize: 13, fontWeight: "800", color: C.text },
+  barTrack: { height: 8, borderRadius: 4, backgroundColor: C.surface2, overflow: "hidden" },
+  barFill: { height: 8, borderRadius: 4 },
+  mini: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface2 },
+  miniOn: { backgroundColor: C.brandSoft, borderColor: "rgba(21,128,61,.4)" },
+  miniDanger: { backgroundColor: C.coralSoft, borderColor: "rgba(225,29,72,.35)" },
+  miniTxt: { fontSize: 10, fontWeight: "800", color: C.muted },
+  miniTxtOn: { color: C.brand },
+  miniTxtDanger: { color: C.coral },
 });

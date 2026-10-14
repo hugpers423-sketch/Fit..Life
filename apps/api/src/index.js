@@ -1401,5 +1401,127 @@ app.post("/api/visits", ownBody("userId"), async (req, res) => {
   }
 });
 
+// ============================================
+// ADMIN - GESTION DE USUARIOS Y RESUMEN PLATAFORMA
+// ============================================
+
+// DELETE user - Solo SUPER_ADMIN. El admin no puede borrarse a si mismo.
+// El schema borra en cascada lo que cuelga de la cuenta (token, perfil,
+// comidas, entrenamientos, visitas, pagos, posts y sesiones creadas), asi
+// que se delega todo en el unico delete para no dejar filas huerfanas.
+app.delete("/api/users/:id", need("SUPER_ADMIN"), async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (id === req.authUser.id) {
+      return res.status(400).json({ error: "No puedes eliminar tu propia cuenta" });
+    }
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: "El usuario no existe" });
+
+    await prisma.user.delete({ where: { id } });
+
+    res.json({ success: true, deleted: publicUser(target) });
+  } catch (error) {
+    if (error && error.code === "P2025") {
+      return res.status(404).json({ error: "El usuario no existe" });
+    }
+    res.status(500).json({ error: "No se pudo eliminar el usuario" });
+  }
+});
+
+// PATCH user - Solo SUPER_ADMIN. Actualiza rol / membresia / ficha.
+app.patch("/api/users/:id", need("SUPER_ADMIN"), async (req, res) => {
+  const { id } = req.params;
+  const { name, role, specialty, membership, businessType } = req.body || {};
+  const validRoles = ["SUPER_ADMIN", "VENDEDOR", "USUARIO", "ORIENTADOR", "QUIOSK"];
+  const validMembership = ["BASIC", "PREMIUM"];
+  const validBusiness = ["GIMNASIO", "RESTAURANTE"];
+  try {
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: "El usuario no existe" });
+    if (role && !validRoles.includes(role)) {
+      return res.status(400).json({ error: "Rol invalido" });
+    }
+    if (membership && !validMembership.includes(membership)) {
+      return res.status(400).json({ error: "Membresia invalida" });
+    }
+    const nextRole = role || target.role;
+    let nextBusiness = target.businessType;
+    if (nextRole === "VENDEDOR") {
+      const want = businessType || target.businessType;
+      if (!validBusiness.includes(want)) {
+        return res.status(400).json({ error: "Un vendedor debe ser GIMNASIO o RESTAURANTE" });
+      }
+      nextBusiness = want;
+    } else {
+      nextBusiness = null;
+    }
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        ...(name ? { name: String(name).trim() } : {}),
+        ...(role ? { role } : {}),
+        ...(specialty !== undefined ? { specialty: specialty ? String(specialty).trim() : null } : {}),
+        ...(membership ? { membership } : {}),
+        businessType: nextBusiness,
+      },
+    });
+    res.json(publicUser(user));
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo actualizar el usuario" });
+  }
+});
+
+// GET admin overview - Un solo toque para el dashboard de la app admin:
+// usuarios por rol, actividad por rol, ingresos, catalogo y contenido.
+app.get("/api/admin/stats/overview", need("SUPER_ADMIN"), async (req, res) => {
+  try {
+    const [
+      usersTotal,
+      usersByRole,
+      mealsByRole,
+      workoutsTotal,
+      postsTotal,
+      sessionsTotal,
+      paymentsTotal,
+      paymentsAgg,
+      gymsTotal,
+      restaurantsTotal,
+      dishesTotal,
+      productsTotal,
+      visitsTotal,
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.$queryRaw`SELECT role, COUNT(*)::int AS total FROM "User" GROUP BY role`,
+      prisma.$queryRaw`
+        SELECT u.role, COUNT(m.id)::int AS total
+        FROM "Meal" m JOIN "User" u ON m."userId" = u.id
+        GROUP BY u.role`,
+      prisma.workout.count(),
+      prisma.post.count(),
+      prisma.session.count(),
+      prisma.payment.count(),
+      prisma.payment.aggregate({ _sum: { amount: true } }),
+      prisma.gym.count(),
+      prisma.restaurant.count(),
+      prisma.dish.count(),
+      prisma.product.count(),
+      prisma.visit.count(),
+    ]);
+
+    res.json({
+      users: { total: usersTotal, byRole: (usersByRole || []).map((r) => ({ role: r.role, total: Number(r.total) })) },
+      meals: { byRole: (mealsByRole || []).map((r) => ({ role: r.role, total: Number(r.total) })) },
+      workouts: { total: workoutsTotal },
+      content: { posts: postsTotal, sessions: sessionsTotal },
+      revenue: { payments: paymentsTotal, amount: Number(paymentsAgg._sum.amount || 0) },
+      catalog: { gyms: gymsTotal, restaurants: restaurantsTotal, dishes: dishesTotal, products: productsTotal, visits: visitsTotal },
+    });
+  } catch (error) {
+    res.status(500).json({ error: "No se pudo obtener el resumen de la plataforma" });
+  }
+});
+
 if (require.main === module) app.listen(PORT, () => console.log(`API on ${PORT}`));
 module.exports = app;
