@@ -45,6 +45,12 @@ export const C = {
   cyan: "#0e7490",
   cyanVivid: "#06b6d4",
   ink: "#04150a",
+  // --- Voice-First (Screen 1) ---
+  voice: "#8e44ad",     // morado = voz/IA
+  voiceSoft: "#f0e6ff", // morado suave
+  // --- Health & Metrics (Screens 2-5) ---
+  health: "#16a34a",    // verde salud
+  healthSoft: "#dcfce7", // verde suave
 };
 
 // ------------------------------------------------------------------ Radios --
@@ -414,6 +420,61 @@ export function Pulse({ size = 10, color }) {
   );
 }
 
+/** Orb con 3 halos concéntricos (fiel a Screen 1 del diseño original). */
+export function Orb({ size = 144, color1 = C.voice, color2 = C.health, color3 = C.brandVivid }) {
+  const style = {
+    width: size,
+    height: size,
+    position: "relative",
+  };
+  return (
+    <View style={style}>
+      {/* Halo 1: retraso .0s */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: size,
+          height: size,
+          borderRadius: size,
+          border: `4px solid ${color1}`,
+          animation: `orbPulse 1.8s ease-in-out infinite`,
+          animationDelay: "0s",
+        }}
+      />
+      {/* Halo 2: retraso .9s */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: "4px",
+          left: "4px",
+          width: size - 8,
+          height: size - 8,
+          borderRadius: (size - 8) / 2,
+          border: `4px solid ${color2}`,
+          animation: `orbPulse 1.8s ease-in-out infinite`,
+          animationDelay: "0.9s",
+        }}
+      />
+      {/* Halo 3: retraso 1.8s */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: "8px",
+          left: "8px",
+          width: size - 16,
+          height: size - 16,
+          borderRadius: (size - 16) / 2,
+          border: `4px solid ${color3}`,
+          animation: `orbPulse 1.8s ease-in-out infinite`,
+          animationDelay: "1.8s",
+        }}
+      />
+    </View>
+  );
+}
+
 // ------------------------------------------------------------- Elementos ----
 /** Píldora corta en mayúsculas (fiel a `.pill`/`.tag`). */
 export function Pill({ children, color, soft, style, textStyle }) {
@@ -557,3 +618,26 @@ const st = StyleSheet.create({
 const sk = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
 });
+
+// Animación de pulsación del Orb (Screen 1)
+const orbAnim = {
+  orbPulse: `
+    @keyframes orbPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(142,68,173,0.4); }
+      50%  { box-shadow: 0 0 12px 6px rgba(142,68,173,0.6); }
+      100% { box-shadow: 0 0 0 0 rgba(142,68,173,0.4); }
+    }
+  `,
+  orbContainer: {
+    position: "relative",
+    width: 144,
+    height: 144,
+  },
+};
+
+// Registrar keyframes globalmente (usado por Orb y otras animaciones)
+if (typeof document !== "undefined") {
+  const styleSheet = document.createElement("style");
+  styleSheet.innerHTML = orbAnim.orbPulse;
+  document.head.appendChild(styleSheet);
+}
