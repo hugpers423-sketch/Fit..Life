@@ -475,6 +475,26 @@ export function Orb({ size = 144, color1 = C.voice, color2 = C.health, color3 = 
   );
 }
 
+// ------------------------------------------------------------- Steppers --
+/** Stepper para edad/altura/peso (fiel a Screen 1 y Screen 2 del EHTML). */
+function Stepper({ label, min, max, step, value, onChange }) {
+  const [val, setVal] = useState(value);
+  return (
+    <View style={s.stepper}>
+      <Text style={s.stepperLabel}>{label}</Text>
+      <View style={s.stepperContainer}>
+        <Text style={s.stepperVal}>{val}</Text>
+        <TouchableOpacity onPress={() => setVal(Math.max(min, val - step))} style={[s.btn, s.btnMinus]}>
+          <Text style={s.btnTxt}>-</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setVal(Math.min(max, val + step))} style={[s.btn, s.btnPlus]}>
+          <Text style={s.btnTxt}>+</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ------------------------------------------------------------- Elementos ----
 /** Píldora corta en mayúsculas (fiel a `.pill`/`.tag`). */
 export function Pill({ children, color, soft, style, textStyle }) {
@@ -617,6 +637,14 @@ const st = StyleSheet.create({
 });
 const sk = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
+  stepper: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: R.m, paddingHorizontal: 12 },
+  stepperLabel: { fontSize: 12, color: C.muted },
+  stepperContainer: { flexDirection: "row", alignItems: "center", gap: 8 },
+  btn: { width: 32, height: 32, borderRadius: R.full, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" },
+  btnMinus: {},
+  btnPlus: {},
+  btnTxt: { fontSize: 16, fontWeight: "800", color: C.brandVivid },
+  stepperVal: { fontSize: 18, fontWeight: "900", color: C.text },
 });
 
 // Animación de pulsación del Orb (Screen 1)
